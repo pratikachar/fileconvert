@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FileForge — Free Online File Converter | Convert Images, Audio, Video & Documents</title>
+    <meta name="description" content="Convert files for free — 100% in your browser. Support for images (PNG, JPG, WebP), audio (MP3, WAV, OGG), video (MP4, WebM), and documents (CSV, JSON, YAML). No upload, no server, complete privacy." />
+    <meta name="keywords" content="file converter, free, online, image converter, audio converter, video converter, document converter, privacy, no upload" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+  </head>
+  <body>
+    <!-- Background animated gradients -->
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+
+    <div id="app">
+      <!-- Header -->
+      <header class="header">
+        <div class="logo">
+          <span class="logo-icon">⚡</span>
+          <span class="logo-text">FileForge</span>
+        </div>
+        <div class="privacy-badge">
+          <span class="badge-dot"></span>
+          <span>Files never leave your device</span>
+        </div>
+      </header>
+
+      <!-- Hero Section -->
+      <section class="hero">
+        <h1 class="hero-title">
+          Convert <span class="gradient-text">Any File</span><br />
+          Right in Your Browser
+        </h1>
+        <p class="hero-subtitle">
+          Free, private, and instant. No uploads, no servers — everything happens on your device.
+        </p>
+      </section>
+
+      <!-- Main Converter Section -->
+      <main class="converter-section">
+        <!-- Upload Zone -->
+        <div id="upload-zone" class="upload-zone">
+          <div class="upload-zone-content">
+            <div class="upload-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <p class="upload-text">Drag & drop your file here</p>
+            <p class="upload-subtext">or click to browse</p>
+            <div class="upload-formats">
+              Supports images, audio, video & documents
+            </div>
+          </div>
+          <input type="file" id="file-input" class="file-input" />
+        </div>
+
+        <!-- Conversion Panel (hidden initially) -->
+        <div id="conversion-panel" class="conversion-panel hidden">
+          <!-- File Info -->
+          <div class="file-info">
+            <div class="file-icon" id="file-type-icon">📄</div>
+            <div class="file-details">
+              <h3 id="file-name" class="file-name">filename.ext</h3>
+              <p id="file-meta" class="file-meta">0 KB · Image</p>
+            </div>
+            <button id="btn-remove" class="btn-remove" title="Remove file">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Conversion Options -->
+          <div class="conversion-options">
+            <div class="option-group">
+              <label for="output-format" class="option-label">Convert to</label>
+              <div class="select-wrapper">
+                <select id="output-format" class="select-format">
+                  <option value="">Select format...</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="quality-group" class="option-group hidden">
+              <label for="quality-slider" class="option-label">Quality: <span id="quality-value">90</span>%</label>
+              <input type="range" id="quality-slider" class="quality-slider" min="10" max="100" value="90" step="5" />
+            </div>
+          </div>
+
+          <!-- Convert Button -->
+          <button id="btn-convert" class="btn-convert" disabled>
+            <span class="btn-text">Select a format to convert</span>
+            <span class="btn-loader hidden">
+              <span class="spinner"></span>
+              Converting...
+            </span>
+          </button>
+
+          <!-- Progress Bar -->
+          <div id="progress-section" class="progress-section hidden">
+            <div class="progress-bar-track">
+              <div id="progress-bar" class="progress-bar-fill"></div>
+            </div>
+            <p id="progress-text" class="progress-text">Preparing...</p>
+          </div>
+
+          <!-- Download Section -->
+          <div id="download-section" class="download-section hidden">
+            <div class="download-success">
+              <span class="success-icon">✅</span>
+              <div>
+                <p class="download-title">Conversion Complete!</p>
+                <p id="download-meta" class="download-meta">output.png · 0 KB</p>
+              </div>
+            </div>
+            <button id="btn-download" class="btn-download">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Download File
+            </button>
+            <button id="btn-convert-another" class="btn-convert-another">Convert Another File</button>
+          </div>
+        </div>
+      </main>
+
+      <!-- Supported Formats Section -->
+      <section class="formats-section">
+        <h2 class="section-title">Supported Conversions</h2>
+        <div class="formats-grid">
+          <div class="format-card">
+            <div class="format-card-icon">🖼️</div>
+            <h3 class="format-card-title">Images</h3>
+            <div class="format-tags">
+              <span class="tag tag-input">PNG</span>
+              <span class="tag tag-input">JPG</span>
+              <span class="tag tag-input">WebP</span>
+              <span class="tag tag-input">BMP</span>
+              <span class="tag tag-input">GIF</span>
+              <span class="tag tag-input">SVG</span>
+              <span class="tag tag-input">ICO</span>
+              <span class="tag tag-input">TIFF</span>
+            </div>
+            <div class="format-arrow">↓ convert to ↓</div>
+            <div class="format-tags">
+              <span class="tag tag-output">PNG</span>
+              <span class="tag tag-output">JPG</span>
+              <span class="tag tag-output">WebP</span>
+            </div>
+          </div>
+
+          <div class="format-card">
+            <div class="format-card-icon">🎵</div>
+            <h3 class="format-card-title">Audio</h3>
+            <div class="format-tags">
+              <span class="tag tag-input">MP3</span>
+              <span class="tag tag-input">WAV</span>
+              <span class="tag tag-input">OGG</span>
+              <span class="tag tag-input">AAC</span>
+              <span class="tag tag-input">FLAC</span>
+              <span class="tag tag-input">M4A</span>
+            </div>
+            <div class="format-arrow">↓ convert to ↓</div>
+            <div class="format-tags">
+              <span class="tag tag-output">MP3</span>
+              <span class="tag tag-output">WAV</span>
+              <span class="tag tag-output">OGG</span>
+              <span class="tag tag-output">AAC</span>
+              <span class="tag tag-output">FLAC</span>
+            </div>
+          </div>
+
+          <div class="format-card">
+            <div class="format-card-icon">🎬</div>
+            <h3 class="format-card-title">Video</h3>
+            <div class="format-tags">
+              <span class="tag tag-input">MP4</span>
+              <span class="tag tag-input">WebM</span>
+              <span class="tag tag-input">AVI</span>
+              <span class="tag tag-input">MKV</span>
+              <span class="tag tag-input">MOV</span>
+              <span class="tag tag-input">FLV</span>
+            </div>
+            <div class="format-arrow">↓ convert to ↓</div>
+            <div class="format-tags">
+              <span class="tag tag-output">MP4</span>
+              <span class="tag tag-output">WebM</span>
+              <span class="tag tag-output">AVI</span>
+              <span class="tag tag-output">MKV</span>
+            </div>
+          </div>
+
+          <div class="format-card">
+            <div class="format-card-icon">📄</div>
+            <h3 class="format-card-title">Documents</h3>
+            <div class="format-tags">
+              <span class="tag tag-input">CSV</span>
+              <span class="tag tag-input">JSON</span>
+              <span class="tag tag-input">YAML</span>
+              <span class="tag tag-input">XML</span>
+              <span class="tag tag-input">MD</span>
+              <span class="tag tag-input">TXT</span>
+            </div>
+            <div class="format-arrow">↓ convert to ↓</div>
+            <div class="format-tags">
+              <span class="tag tag-output">CSV</span>
+              <span class="tag tag-output">JSON</span>
+              <span class="tag tag-output">YAML</span>
+              <span class="tag tag-output">XML</span>
+              <span class="tag tag-output">HTML</span>
+              <span class="tag tag-output">TXT</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <p>FileForge — 100% client-side file conversion. No data is ever sent to any server.</p>
+        <p class="footer-sub">Powered by FFmpeg.wasm, Canvas API & open-source libraries</p>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
