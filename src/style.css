@@ -841,7 +841,7 @@ body {
 /* --- Responsive --- */
 @media (max-width: 640px) {
   #app {
-    padding: 16px 16px 40px;
+    padding: 16px 16px calc(40px + env(safe-area-inset-bottom));
   }
 
   .header {
@@ -850,12 +850,17 @@ body {
     align-items: flex-start;
   }
 
+  .privacy-badge {
+    max-width: 100%;
+    white-space: nowrap;
+  }
+
   .hero {
     padding: 12px 0 32px;
   }
 
   .upload-zone {
-    padding: 40px 20px;
+    padding: 32px 16px;
   }
 
   .formats-grid {
@@ -864,5 +869,62 @@ body {
 
   .file-info {
     padding: 16px;
+    gap: 12px;
+  }
+
+  .file-icon {
+    font-size: 30px;
+  }
+
+  .conversion-options {
+    gap: 14px;
+  }
+
+  .select-format {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  .logo-text {
+    font-size: 20px;
+  }
+
+  .upload-text {
+    font-size: 1rem;
+  }
+
+  .upload-subtext {
+    font-size: 0.85rem;
+  }
+
+  .upload-zone {
+    padding: 28px 14px;
+  }
+
+  .btn-convert,
+  .btn-download {
+    padding: 14px 24px;
+    font-size: 0.95rem;
+  }
+
+  .btn-convert-another {
+    padding: 12px 24px;
+  }
+
+  .format-card {
+    padding: 20px;
+  }
+
+  .file-info {
+    padding: 14px;
+  }
+
+  .file-name {
+    font-size: 0.9rem;
+  }
+
+  .download-success {
+    padding: 14px 16px;
   }
 }

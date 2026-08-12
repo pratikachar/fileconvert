@@ -70,6 +70,7 @@ function getFFmpegArgs(inputExt, outputExt) {
     ogg: ['-c:a', 'libvorbis', '-b:a', '192k'],
     aac: ['-c:a', 'aac', '-b:a', '192k'],
     flac: ['-c:a', 'flac'],
+    opus: ['-c:a', 'libopus', '-b:a', '128k'],
   };
 
   const videoCodecs = {
@@ -77,6 +78,7 @@ function getFFmpegArgs(inputExt, outputExt) {
     webm: ['-c:v', 'libvpx', '-c:a', 'libvorbis', '-b:v', '1M'],
     avi: ['-c:v', 'mpeg4', '-c:a', 'mp3'],
     mkv: ['-c:v', 'libx264', '-preset', 'fast', '-c:a', 'aac'],
+    gif: ['-f', 'gif', '-vf', 'fps=10'],
   };
 
   // Audio output

@@ -20,10 +20,10 @@ export const CATEGORIES = {
  */
 export const FORMAT_REGISTRY = {
   // --- Images (Canvas API) ---
-  png:  { category: 'image', mimeType: 'image/png',  outputs: ['jpg', 'jpeg', 'webp', 'bmp'], qualityAdjustable: false },
-  jpg:  { category: 'image', mimeType: 'image/jpeg', outputs: ['png', 'webp', 'bmp'], qualityAdjustable: true },
-  jpeg: { category: 'image', mimeType: 'image/jpeg', outputs: ['png', 'webp', 'bmp'], qualityAdjustable: true },
-  webp: { category: 'image', mimeType: 'image/webp', outputs: ['png', 'jpg', 'jpeg', 'bmp'], qualityAdjustable: true },
+  png:  { category: 'image', mimeType: 'image/png',  outputs: ['jpg', 'jpeg', 'webp'], qualityAdjustable: false },
+  jpg:  { category: 'image', mimeType: 'image/jpeg', outputs: ['png', 'webp'], qualityAdjustable: true },
+  jpeg: { category: 'image', mimeType: 'image/jpeg', outputs: ['png', 'webp'], qualityAdjustable: true },
+  webp: { category: 'image', mimeType: 'image/webp', outputs: ['png', 'jpg', 'jpeg'], qualityAdjustable: true },
   bmp:  { category: 'image', mimeType: 'image/bmp',  outputs: ['png', 'jpg', 'jpeg', 'webp'], qualityAdjustable: false },
   gif:  { category: 'image', mimeType: 'image/gif',  outputs: ['png', 'jpg', 'jpeg', 'webp'], qualityAdjustable: false },
   svg:  { category: 'image', mimeType: 'image/svg+xml', outputs: ['png', 'jpg', 'jpeg', 'webp'], qualityAdjustable: false },
@@ -32,21 +32,21 @@ export const FORMAT_REGISTRY = {
   tif:  { category: 'image', mimeType: 'image/tiff', outputs: ['png', 'jpg', 'jpeg', 'webp'], qualityAdjustable: false },
 
   // --- Audio (FFmpeg.wasm) ---
-  mp3:  { category: 'audio', mimeType: 'audio/mpeg',    outputs: ['wav', 'ogg', 'aac', 'flac'], qualityAdjustable: false },
-  wav:  { category: 'audio', mimeType: 'audio/wav',     outputs: ['mp3', 'ogg', 'aac', 'flac'], qualityAdjustable: false },
-  ogg:  { category: 'audio', mimeType: 'audio/ogg',     outputs: ['mp3', 'wav', 'aac', 'flac'], qualityAdjustable: false },
-  aac:  { category: 'audio', mimeType: 'audio/aac',     outputs: ['mp3', 'wav', 'ogg', 'flac'], qualityAdjustable: false },
-  flac: { category: 'audio', mimeType: 'audio/flac',    outputs: ['mp3', 'wav', 'ogg', 'aac'], qualityAdjustable: false },
-  m4a:  { category: 'audio', mimeType: 'audio/mp4',     outputs: ['mp3', 'wav', 'ogg', 'aac', 'flac'], qualityAdjustable: false },
-  wma:  { category: 'audio', mimeType: 'audio/x-ms-wma', outputs: ['mp3', 'wav', 'ogg', 'aac', 'flac'], qualityAdjustable: false },
+  mp3:  { category: 'audio', mimeType: 'audio/mpeg',    outputs: ['wav', 'ogg', 'aac', 'flac', 'opus'], qualityAdjustable: false },
+  wav:  { category: 'audio', mimeType: 'audio/wav',     outputs: ['mp3', 'ogg', 'aac', 'flac', 'opus'], qualityAdjustable: false },
+  ogg:  { category: 'audio', mimeType: 'audio/ogg',     outputs: ['mp3', 'wav', 'aac', 'flac', 'opus'], qualityAdjustable: false },
+  aac:  { category: 'audio', mimeType: 'audio/aac',     outputs: ['mp3', 'wav', 'ogg', 'flac', 'opus'], qualityAdjustable: false },
+  flac: { category: 'audio', mimeType: 'audio/flac',    outputs: ['mp3', 'wav', 'ogg', 'aac', 'opus'], qualityAdjustable: false },
+  m4a:  { category: 'audio', mimeType: 'audio/mp4',     outputs: ['mp3', 'wav', 'ogg', 'aac', 'flac', 'opus'], qualityAdjustable: false },
+  wma:  { category: 'audio', mimeType: 'audio/x-ms-wma', outputs: ['mp3', 'wav', 'ogg', 'aac', 'flac', 'opus'], qualityAdjustable: false },
 
   // --- Video (FFmpeg.wasm) ---
-  mp4:  { category: 'video', mimeType: 'video/mp4',     outputs: ['webm', 'avi', 'mkv'], qualityAdjustable: false },
-  webm: { category: 'video', mimeType: 'video/webm',    outputs: ['mp4', 'avi', 'mkv'], qualityAdjustable: false },
-  avi:  { category: 'video', mimeType: 'video/x-msvideo', outputs: ['mp4', 'webm', 'mkv'], qualityAdjustable: false },
-  mkv:  { category: 'video', mimeType: 'video/x-matroska', outputs: ['mp4', 'webm', 'avi'], qualityAdjustable: false },
-  mov:  { category: 'video', mimeType: 'video/quicktime', outputs: ['mp4', 'webm', 'avi', 'mkv'], qualityAdjustable: false },
-  flv:  { category: 'video', mimeType: 'video/x-flv',   outputs: ['mp4', 'webm', 'avi', 'mkv'], qualityAdjustable: false },
+  mp4:  { category: 'video', mimeType: 'video/mp4',     outputs: ['webm', 'avi', 'mkv', 'gif'], qualityAdjustable: false },
+  webm: { category: 'video', mimeType: 'video/webm',    outputs: ['mp4', 'avi', 'mkv', 'gif'], qualityAdjustable: false },
+  avi:  { category: 'video', mimeType: 'video/x-msvideo', outputs: ['mp4', 'webm', 'mkv', 'gif'], qualityAdjustable: false },
+  mkv:  { category: 'video', mimeType: 'video/x-matroska', outputs: ['mp4', 'webm', 'avi', 'gif'], qualityAdjustable: false },
+  mov:  { category: 'video', mimeType: 'video/quicktime', outputs: ['mp4', 'webm', 'avi', 'mkv', 'gif'], qualityAdjustable: false },
+  flv:  { category: 'video', mimeType: 'video/x-flv',   outputs: ['mp4', 'webm', 'avi', 'mkv', 'gif'], qualityAdjustable: false },
 
   // --- Documents (Pure JS) ---
   csv:  { category: 'document', mimeType: 'text/csv',        outputs: ['json', 'yaml', 'xml', 'txt'], qualityAdjustable: false },
@@ -67,13 +67,14 @@ export const OUTPUT_MIME_TYPES = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   webp: 'image/webp',
-  bmp: 'image/bmp',
+  gif: 'image/gif',
   // Audio
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
   ogg: 'audio/ogg',
   aac: 'audio/aac',
   flac: 'audio/flac',
+  opus: 'audio/opus',
   // Video
   mp4: 'video/mp4',
   webm: 'video/webm',
