@@ -16,6 +16,8 @@
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "js-yaml": "^4.1.0",
-    "marked": "^15.0.7"
+    "jszip": "^3.10.1",
+    "marked": "^15.0.7",
+    "qrcode": "^1.5.4"
   }
 }

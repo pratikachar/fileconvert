@@ -1,6 +1,6 @@
 /**
- * FileForge — Main Application
- * Orchestrates UI interactions and dispatches to converters
+ * FileForge — Main Application Script
+ * Orchestrates File Conversion, Icon Generator, and QR Code Generator
  */
 
 import './style.css';
@@ -15,12 +15,46 @@ import {
 import { convertImage } from './converters/image.js';
 import { convertMedia } from './converters/media.js';
 import { convertDocument } from './converters/document.js';
+import { renderIconCanvas, buildIconPackage } from './generators/iconGenerator.js';
+import { renderQRCanvas, renderQRSVG } from './generators/qrGenerator.js';
 
-// ============================
-// DOM References
-// ============================
+// Helper DOM selector
 const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
 
+// ============================================
+// 1. Tab Navigation Controller
+// ============================================
+function setupTabNavigation() {
+  const tabs = $$('.nav-tab');
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const tabTarget = tab.getAttribute('data-tab');
+
+      // Update tab buttons state
+      tabs.forEach((t) => {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
+
+      // Update tab contents visibility
+      $$('.tab-content').forEach((content) => {
+        content.classList.add('hidden');
+      });
+
+      const activeContent = $(`#tab-content-${tabTarget}`);
+      if (activeContent) {
+        activeContent.classList.remove('hidden');
+      }
+    });
+  });
+}
+
+// ============================================
+// 2. File Converter Module (Original)
+// ============================================
 const uploadZone = $('#upload-zone');
 const fileInput = $('#file-input');
 const conversionPanel = $('#conversion-panel');
@@ -48,41 +82,16 @@ const downloadMeta = $('#download-meta');
 const btnDownload = $('#btn-download');
 const btnConvertAnother = $('#btn-convert-another');
 
-// ============================
-// State
-// ============================
 let currentFile = null;
 let convertedBlob = null;
 let convertedFileName = '';
 
-// ============================
-// Initialize
-// ============================
-function init() {
-  // Set accepted file types
+function setupFileConverter() {
   fileInput.setAttribute('accept', getSupportedAccept());
 
-  // Bind events
-  bindUploadEvents();
-  bindConversionEvents();
-  bindDownloadEvents();
-
-  // Remove default Vite counter.js and style
-  removeDefaultViteFiles();
-}
-
-function removeDefaultViteFiles() {
-  // Nothing needed, we've overwritten the files
-}
-
-// ============================
-// Upload Handling
-// ============================
-function bindUploadEvents() {
-  // Click to upload
+  // Upload events
   fileInput.addEventListener('change', handleFileSelect);
 
-  // Drag & drop
   uploadZone.addEventListener('dragover', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -105,8 +114,23 @@ function bindUploadEvents() {
     }
   });
 
-  // Remove file
   btnRemove.addEventListener('click', resetToUpload);
+
+  // Conversion options
+  outputFormat.addEventListener('change', () => {
+    updateConvertButton();
+    updateQualityVisibility();
+  });
+
+  qualitySlider.addEventListener('input', () => {
+    qualityValue.textContent = qualitySlider.value;
+  });
+
+  btnConvert.addEventListener('click', startConversion);
+
+  // Download actions
+  btnDownload.addEventListener('click', downloadFile);
+  btnConvertAnother.addEventListener('click', resetToUpload);
 }
 
 function handleFileSelect(e) {
@@ -126,27 +150,22 @@ function handleFile(file) {
 
   currentFile = file;
 
-  // Update UI
   const category = CATEGORIES[info.category];
   fileTypeIcon.textContent = category.icon;
   fileName.textContent = file.name;
   fileMeta.textContent = `${formatFileSize(file.size)} · ${category.label}`;
 
-  // Populate output format dropdown
   populateOutputFormats(info.outputs, ext);
 
-  // Show/hide quality slider
   if (info.qualityAdjustable) {
     qualityGroup.classList.remove('hidden');
   } else {
     qualityGroup.classList.add('hidden');
   }
 
-  // Show conversion panel, hide upload zone
   uploadZone.style.display = 'none';
   conversionPanel.classList.remove('hidden');
 
-  // Reset conversion state
   hideProgress();
   hideDownload();
   updateConvertButton();
@@ -162,7 +181,6 @@ function populateOutputFormats(outputs, currentExt) {
     outputFormat.appendChild(opt);
   });
 
-  // Auto-select first option if there's only one
   if (outputs.length === 1) {
     outputFormat.value = outputs[0];
     updateConvertButton();
@@ -187,22 +205,6 @@ function resetToUpload() {
   qualityValue.textContent = '90';
 }
 
-// ============================
-// Conversion Handling
-// ============================
-function bindConversionEvents() {
-  outputFormat.addEventListener('change', () => {
-    updateConvertButton();
-    updateQualityVisibility();
-  });
-
-  qualitySlider.addEventListener('input', () => {
-    qualityValue.textContent = qualitySlider.value;
-  });
-
-  btnConvert.addEventListener('click', startConversion);
-}
-
 function updateConvertButton() {
   const hasFormat = outputFormat.value !== '';
   btnConvert.disabled = !hasFormat;
@@ -213,7 +215,6 @@ function updateConvertButton() {
 
 function updateQualityVisibility() {
   const selectedExt = outputFormat.value;
-  // Show quality for JPG and WebP output
   if (selectedExt === 'jpg' || selectedExt === 'jpeg' || selectedExt === 'webp') {
     qualityGroup.classList.remove('hidden');
   } else {
@@ -228,7 +229,6 @@ async function startConversion() {
   const info = getFormatInfo(ext);
   const targetExt = outputFormat.value;
 
-  // Lock UI
   btnConvert.disabled = true;
   btnText.classList.add('hidden');
   btnLoader.classList.remove('hidden');
@@ -259,7 +259,6 @@ async function startConversion() {
         throw new Error('Unknown category: ' + info.category);
     }
 
-    // Success!
     convertedBlob = blob;
     const baseName = currentFile.name.replace(/\.[^.]+$/, '');
     convertedFileName = `${baseName}.${targetExt}`;
@@ -271,24 +270,14 @@ async function startConversion() {
     showToast(err.message || 'Conversion failed. Please try again.');
     hideProgress();
   } finally {
-    // Unlock UI
     btnText.classList.remove('hidden');
     btnLoader.classList.add('hidden');
     updateConvertButton();
   }
 }
 
-// ============================
-// Download Handling
-// ============================
-function bindDownloadEvents() {
-  btnDownload.addEventListener('click', downloadFile);
-  btnConvertAnother.addEventListener('click', resetToUpload);
-}
-
 function downloadFile() {
   if (!convertedBlob) return;
-
   const url = URL.createObjectURL(convertedBlob);
   const a = document.createElement('a');
   a.href = url;
@@ -296,14 +285,9 @@ function downloadFile() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-
-  // Revoke after a short delay
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-// ============================
-// UI Helpers
-// ============================
 function showProgress() {
   progressSection.classList.remove('hidden');
   progressBar.style.width = '0%';
@@ -322,10 +306,414 @@ function hideDownload() {
   downloadSection.classList.add('hidden');
 }
 
-// Toast notification
+// ============================================
+// 3. Icon Generator Module
+// ============================================
+let iconSourceImg = null;
+
+function setupIconGenerator() {
+  const iconUploadZone = $('#icon-upload-zone');
+  const iconFileInput = $('#icon-file-input');
+  const iconEditorPanel = $('#icon-editor-panel');
+  const btnChangeIcon = $('#btn-change-icon');
+  const btnDownloadIcons = $('#btn-download-icons');
+
+  const bgRadios = $$('input[name="icon-bg"]');
+  const bgColor1 = $('#icon-bg-color1');
+  const bgColor2 = $('#icon-bg-color2');
+  const colorPickersRow = $('#icon-color-pickers');
+  const color2Container = $('#icon-color2-container');
+
+  const paddingSlider = $('#icon-padding-slider');
+  const paddingVal = $('#icon-padding-val');
+  const radiusSlider = $('#icon-radius-slider');
+  const radiusLabel = $('#icon-radius-label');
+
+  // File Upload Handling
+  iconFileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      loadIconSourceImage(e.target.files[0]);
+    }
+  });
+
+  iconUploadZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    iconUploadZone.classList.add('drag-over');
+  });
+
+  iconUploadZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    iconUploadZone.classList.remove('drag-over');
+  });
+
+  iconUploadZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    iconUploadZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length > 0) {
+      loadIconSourceImage(e.dataTransfer.files[0]);
+    }
+  });
+
+  btnChangeIcon.addEventListener('click', () => {
+    iconSourceImg = null;
+    iconFileInput.value = '';
+    iconEditorPanel.classList.add('hidden');
+    iconUploadZone.style.display = '';
+  });
+
+  // Radio Background Changes
+  bgRadios.forEach((radio) => {
+    radio.addEventListener('change', (e) => {
+      // Update active radio chip styling
+      $$('.radio-chip').forEach((chip) => chip.classList.remove('active'));
+      e.target.closest('.radio-chip').classList.add('active');
+
+      const val = e.target.value;
+      if (val === 'custom') {
+        colorPickersRow.classList.remove('hidden');
+        color2Container.classList.add('hidden');
+      } else if (val === 'gradient') {
+        colorPickersRow.classList.remove('hidden');
+        color2Container.classList.remove('hidden');
+      } else {
+        colorPickersRow.classList.add('hidden');
+      }
+
+      updateIconPreviews();
+    });
+  });
+
+  bgColor1.addEventListener('input', updateIconPreviews);
+  bgColor2.addEventListener('input', updateIconPreviews);
+
+  paddingSlider.addEventListener('input', () => {
+    paddingVal.textContent = paddingSlider.value;
+    updateIconPreviews();
+  });
+
+  radiusSlider.addEventListener('input', () => {
+    const val = parseInt(radiusSlider.value);
+    if (val === 0) radiusLabel.textContent = 'Square';
+    else if (val >= 50) radiusLabel.textContent = 'Circle';
+    else radiusLabel.textContent = 'Squircle';
+
+    updateIconPreviews();
+  });
+
+  // Download All Icons ZIP
+  btnDownloadIcons.addEventListener('click', async () => {
+    if (!iconSourceImg) return;
+
+    btnDownloadIcons.disabled = true;
+    const origText = btnDownloadIcons.querySelector('span').textContent;
+    btnDownloadIcons.querySelector('span').textContent = 'Packaging icon bundle...';
+
+    try {
+      const options = getIconOptions();
+      const { zipBlob } = await buildIconPackage(iconSourceImg, options);
+
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'app-icons-package.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (err) {
+      console.error('Error generating icon ZIP:', err);
+      showToast('Failed to generate icon package.');
+    } finally {
+      btnDownloadIcons.disabled = false;
+      btnDownloadIcons.querySelector('span').textContent = origText;
+    }
+  });
+}
+
+function loadIconSourceImage(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      iconSourceImg = img;
+      $('#icon-upload-zone').style.display = 'none';
+      $('#icon-editor-panel').classList.remove('hidden');
+      updateIconPreviews();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function getIconOptions() {
+  const bgType = $('input[name="icon-bg"]:checked').value;
+  const bgColor = $('#icon-bg-color1').value;
+  const gradientColor2 = $('#icon-bg-color2').value;
+  const paddingPct = parseInt($('#icon-padding-slider').value);
+  const borderRadiusPct = parseInt($('#icon-radius-slider').value);
+
+  return {
+    bgType,
+    bgColor,
+    gradientColor2,
+    paddingPct,
+    borderRadiusPct,
+  };
+}
+
+function updateIconPreviews() {
+  if (!iconSourceImg) return;
+  const options = getIconOptions();
+
+  // Render previews for each platform
+  const winCanvas = renderIconCanvas(iconSourceImg, 256, options);
+  $('#prev-windows').src = winCanvas.toDataURL('image/png');
+
+  const appleCanvas = renderIconCanvas(iconSourceImg, 180, options);
+  $('#prev-apple').src = appleCanvas.toDataURL('image/png');
+
+  const androidCanvas = renderIconCanvas(iconSourceImg, 192, options);
+  $('#prev-android').src = androidCanvas.toDataURL('image/png');
+
+  const faviconCanvas = renderIconCanvas(iconSourceImg, 32, options);
+  $('#prev-favicon').src = faviconCanvas.toDataURL('image/png');
+}
+
+// ============================================
+// 4. QR Code Generator Module
+// ============================================
+let qrActiveType = 'url';
+let qrModuleStyle = 'square';
+let qrEyeStyle = 'square';
+let qrLogoImg = null;
+
+function setupQRGenerator() {
+  // Data Type Buttons
+  $$('.qr-type-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      $$('.qr-type-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      qrActiveType = btn.getAttribute('data-type');
+      $$('.qr-input-group').forEach((grp) => grp.classList.add('hidden'));
+
+      const targetGrp = $(`[data-for="${qrActiveType}"]`);
+      if (targetGrp) targetGrp.classList.remove('hidden');
+
+      updateQRPreview();
+    });
+  });
+
+  // Module & Eye style option buttons
+  $$('.opt-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const styleType = btn.getAttribute('data-style-type');
+      const val = btn.getAttribute('data-val');
+
+      $$(`.opt-btn[data-style-type="${styleType}"]`).forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      if (styleType === 'module') qrModuleStyle = val;
+      else if (styleType === 'eye') qrEyeStyle = val;
+
+      updateQRPreview();
+    });
+  });
+
+  // Input change listeners for real-time QR update
+  $$('#qr-inputs-container input, #qr-inputs-container textarea, #qr-inputs-container select').forEach((elem) => {
+    elem.addEventListener('input', updateQRPreview);
+  });
+
+  // Color Pickers & Toggles
+  $('#qr-fg-color').addEventListener('input', updateQRPreview);
+  $('#qr-bg-color').addEventListener('input', updateQRPreview);
+  $('#qr-transparent-bg').addEventListener('change', updateQRPreview);
+
+  $('#qr-gradient-toggle').addEventListener('change', (e) => {
+    const isGrad = e.target.checked;
+    const gradRow = $('#qr-grad-color-row');
+    if (isGrad) gradRow.classList.remove('hidden');
+    else gradRow.classList.add('hidden');
+    updateQRPreview();
+  });
+  $('#qr-grad-color2').addEventListener('input', updateQRPreview);
+
+  // Logo Overlay Handling
+  const logoInput = $('#qr-logo-input');
+  const btnRemoveLogo = $('#btn-remove-qr-logo');
+  const logoControls = $('#qr-logo-controls');
+  const logoSizeSlider = $('#qr-logo-size-slider');
+  const logoSizeVal = $('#qr-logo-size-val');
+  const logoBgToggle = $('#qr-logo-bg-toggle');
+
+  logoInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const img = new Image();
+        img.onload = () => {
+          qrLogoImg = img;
+          btnRemoveLogo.classList.remove('hidden');
+          logoControls.classList.remove('hidden');
+          updateQRPreview();
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(e.target.files[0]);
+    }
+  });
+
+  btnRemoveLogo.addEventListener('click', () => {
+    qrLogoImg = null;
+    logoInput.value = '';
+    btnRemoveLogo.classList.add('hidden');
+    logoControls.classList.add('hidden');
+    updateQRPreview();
+  });
+
+  logoSizeSlider.addEventListener('input', () => {
+    logoSizeVal.textContent = logoSizeSlider.value;
+    updateQRPreview();
+  });
+
+  logoBgToggle.addEventListener('change', updateQRPreview);
+
+  // Export Buttons
+  $('#btn-download-qr-png').addEventListener('click', () => downloadQR('png'));
+  $('#btn-download-qr-webp').addEventListener('click', () => downloadQR('webp'));
+  $('#btn-download-qr-svg').addEventListener('click', downloadQRSVG);
+
+  // Initial QR code generation
+  updateQRPreview();
+}
+
+function getQRPayload() {
+  switch (qrActiveType) {
+    case 'url':
+      return $('#qr-url-input').value.trim() || 'https://example.com';
+    case 'text':
+      return $('#qr-text-input').value.trim() || 'Hello from FileForge!';
+    case 'phone': {
+      const phone = $('#qr-phone-input').value.trim();
+      return phone ? `tel:${phone}` : 'tel:+15550000000';
+    }
+    case 'email': {
+      const addr = $('#qr-email-address').value.trim();
+      const subj = encodeURIComponent($('#qr-email-subject').value.trim());
+      const body = encodeURIComponent($('#qr-email-body').value.trim());
+      if (!addr) return 'mailto:hello@example.com';
+      return `mailto:${addr}?subject=${subj}&body=${body}`;
+    }
+    case 'wifi': {
+      const ssid = $('#qr-wifi-ssid').value.trim() || 'MyHomeWiFi';
+      const pass = $('#qr-wifi-pass').value.trim();
+      const enc = $('#qr-wifi-enc').value;
+      return `WIFI:S:${ssid};T:${enc};P:${pass};;`;
+    }
+    case 'whatsapp': {
+      const phone = $('#qr-wa-phone').value.trim().replace(/\D/g, '');
+      const msg = encodeURIComponent($('#qr-wa-msg').value.trim());
+      if (!phone) return 'https://wa.me/15550000000';
+      return `https://wa.me/${phone}?text=${msg}`;
+    }
+    case 'vcard': {
+      const name = $('#qr-vcard-name').value.trim() || 'John Doe';
+      const mobile = $('#qr-vcard-mobile').value.trim() || '+15550000000';
+      const email = $('#qr-vcard-email').value.trim() || 'john@company.com';
+      const org = $('#qr-vcard-org').value.trim() || 'Acme Inc.';
+      return `BEGIN:VCARD\nVERSION:3.0\nN:${name}\nFN:${name}\nORG:${org}\nTEL;TYPE=CELL:${mobile}\nEMAIL:${email}\nEND:VCARD`;
+    }
+    default:
+      return 'https://example.com';
+  }
+}
+
+function getQROptions() {
+  const fgColor = $('#qr-fg-color').value;
+  const isTransparent = $('#qr-transparent-bg').checked;
+  const bgColor = isTransparent ? 'transparent' : $('#qr-bg-color').value;
+  const useGradient = $('#qr-gradient-toggle').checked;
+  const gradientColor2 = $('#qr-grad-color2').value;
+  const logoSizePct = parseInt($('#qr-logo-size-slider').value);
+  const logoBgToggle = $('#qr-logo-bg-toggle').checked;
+
+  return {
+    moduleStyle: qrModuleStyle,
+    eyeStyle: qrEyeStyle,
+    fgColor,
+    bgColor,
+    useGradient,
+    gradientColor2,
+    logoImg: qrLogoImg,
+    logoSizePct,
+    logoBgToggle,
+  };
+}
+
+async function updateQRPreview() {
+  const container = $('#qr-preview-container');
+  if (!container) return;
+
+  const payload = getQRPayload();
+  const options = getQROptions();
+
+  try {
+    const canvas = await renderQRCanvas(payload, { ...options, size: 512 });
+    container.innerHTML = '';
+    container.appendChild(canvas);
+  } catch (err) {
+    console.error('Error generating QR preview:', err);
+  }
+}
+
+async function downloadQR(format = 'png') {
+  const payload = getQRPayload();
+  const options = getQROptions();
+
+  try {
+    // Generate high-resolution 1024px canvas
+    const canvas = await renderQRCanvas(payload, { ...options, size: 1024 });
+    const mimeType = format === 'webp' ? 'image/webp' : 'image/png';
+    const dataUrl = canvas.toDataURL(mimeType);
+
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `qrcode.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch (err) {
+    console.error('Error downloading QR code:', err);
+    showToast('Failed to export QR Code.');
+  }
+}
+
+async function downloadQRSVG() {
+  const payload = getQRPayload();
+  const options = getQROptions();
+
+  try {
+    const svgContent = await renderQRSVG(payload, options);
+    const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'qrcode.svg';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (err) {
+    console.error('Error exporting SVG QR:', err);
+    showToast('Failed to export SVG QR Code.');
+  }
+}
+
+// Toast notification helper
 let toastTimeout = null;
 function showToast(message) {
-  // Remove existing toast
   let toast = document.querySelector('.toast-error');
   if (!toast) {
     toast = document.createElement('div');
@@ -334,8 +722,6 @@ function showToast(message) {
   }
 
   toast.textContent = message;
-
-  // Force reflow for animation restart
   toast.classList.remove('show');
   void toast.offsetWidth;
   toast.classList.add('show');
@@ -346,7 +732,14 @@ function showToast(message) {
   }, 5000);
 }
 
-// ============================
-// Start the app
-// ============================
+// ============================================
+// Initialize All Modules
+// ============================================
+function init() {
+  setupTabNavigation();
+  setupFileConverter();
+  setupIconGenerator();
+  setupQRGenerator();
+}
+
 init();

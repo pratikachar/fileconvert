@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FileForge | Free Online File Converter | Convert Images, Audio, Video & Documents</title>
-    <meta name="description" content="Convert files for free, 100% in your browser. Support for images (PNG, JPG, WebP), audio (MP3, WAV, OGG), video (MP4, WebM), and documents (CSV, JSON, YAML). No upload, no server, complete privacy." />
-    <meta name="keywords" content="file converter, free, online, image converter, audio converter, video converter, document converter, privacy, no upload" />
+    <title>FileForge | Free Online Converter, App Icon & QR Code Generator</title>
+    <meta name="description" content="Convert files, generate all app icons (Windows, iOS, Android, Favicon ICO), and design customized QR codes for free, 100% in your browser. Complete privacy, zero server uploads." />
+    <meta name="keywords" content="file converter, icon generator, app icon generator, qr generator, qr code maker, favicon generator, free, online, privacy" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
@@ -17,218 +17,598 @@
     <div class="bg-grid"></div>
 
     <div id="app">
-      <!-- Header -->
+      <!-- Header & Top Navigation -->
       <header class="header">
-        <div class="logo">
-          <span class="logo-icon">⚡</span>
-          <span class="logo-text">FileForge</span>
+        <div class="header-top">
+          <div class="logo">
+            <span class="logo-icon">⚡</span>
+            <span class="logo-text">FileForge</span>
+          </div>
+          <div class="privacy-badge">
+            <span class="badge-dot"></span>
+            <span>100% Client-Side · Private & Free</span>
+          </div>
         </div>
-        <div class="privacy-badge">
-          <span class="badge-dot"></span>
-          <span>Files never leave your device</span>
-        </div>
+
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs" role="tablist">
+          <button class="nav-tab active" id="tab-btn-converter" data-tab="converter" role="tab" aria-selected="true">
+            <span class="tab-icon">📁</span>
+            <span>File Converter</span>
+          </button>
+          <button class="nav-tab" id="tab-btn-icon" data-tab="icon" role="tab" aria-selected="false">
+            <span class="tab-icon">🎨</span>
+            <span>Icon Generator</span>
+          </button>
+          <button class="nav-tab" id="tab-btn-qr" data-tab="qr" role="tab" aria-selected="false">
+            <span class="tab-icon">📱</span>
+            <span>QR Generator</span>
+          </button>
+        </nav>
       </header>
 
-      <!-- Hero Section -->
-      <section class="hero">
-        <h1 class="hero-title">
-          Convert <span class="gradient-text">Any File</span><br />
-          Right in Your Browser
-        </h1>
-        <p class="hero-subtitle">
-          Free, private, and instant. No uploads, no servers. Everything happens on your device.
-        </p>
-      </section>
+      <!-- TAB 1: FILE CONVERTER -->
+      <div id="tab-content-converter" class="tab-content active">
+        <!-- Hero Section -->
+        <section class="hero">
+          <h1 class="hero-title">
+            Convert <span class="gradient-text">Any File</span><br />
+            Right in Your Browser
+          </h1>
+          <p class="hero-subtitle">
+            Free, private, and instant. No uploads, no servers. Everything happens on your device.
+          </p>
+        </section>
 
-      <!-- Main Converter Section -->
-      <main class="converter-section">
-        <!-- Upload Zone -->
-        <div id="upload-zone" class="upload-zone">
-          <div class="upload-zone-content">
-            <div class="upload-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="17 8 12 3 7 8"/>
-                <line x1="12" y1="3" x2="12" y2="15"/>
-              </svg>
+        <!-- Main Converter Section -->
+        <main class="converter-section">
+          <!-- Upload Zone -->
+          <div id="upload-zone" class="upload-zone">
+            <div class="upload-zone-content">
+              <div class="upload-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <p class="upload-text">Drag & drop your file here</p>
+              <p class="upload-subtext">or click to browse</p>
+              <div class="upload-formats">
+                Supports images, audio, video & documents
+              </div>
             </div>
-            <p class="upload-text">Drag & drop your file here</p>
-            <p class="upload-subtext">or click to browse</p>
-            <div class="upload-formats">
-              Supports images, audio, video & documents
-            </div>
-          </div>
-          <input type="file" id="file-input" class="file-input" />
-        </div>
-
-        <!-- Conversion Panel (hidden initially) -->
-        <div id="conversion-panel" class="conversion-panel hidden">
-          <!-- File Info -->
-          <div class="file-info">
-            <div class="file-icon" id="file-type-icon">📄</div>
-            <div class="file-details">
-              <h3 id="file-name" class="file-name">filename.ext</h3>
-              <p id="file-meta" class="file-meta">0 KB · Image</p>
-            </div>
-            <button id="btn-remove" class="btn-remove" title="Remove file">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
+            <input type="file" id="file-input" class="file-input" />
           </div>
 
-          <!-- Conversion Options -->
-          <div class="conversion-options">
-            <div class="option-group">
-              <label for="output-format" class="option-label">Convert to</label>
-              <div class="select-wrapper">
-                <select id="output-format" class="select-format">
-                  <option value="">Select format...</option>
-                </select>
+          <!-- Conversion Panel (hidden initially) -->
+          <div id="conversion-panel" class="conversion-panel hidden">
+            <!-- File Info -->
+            <div class="file-info">
+              <div class="file-icon" id="file-type-icon">📄</div>
+              <div class="file-details">
+                <h3 id="file-name" class="file-name">filename.ext</h3>
+                <p id="file-meta" class="file-meta">0 KB · Image</p>
+              </div>
+              <button id="btn-remove" class="btn-remove" title="Remove file">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Conversion Options -->
+            <div class="conversion-options">
+              <div class="option-group">
+                <label for="output-format" class="option-label">Convert to</label>
+                <div class="select-wrapper">
+                  <select id="output-format" class="select-format">
+                    <option value="">Select format...</option>
+                  </select>
+                </div>
+              </div>
+
+              <div id="quality-group" class="option-group hidden">
+                <label for="quality-slider" class="option-label">Quality: <span id="quality-value">90</span>%</label>
+                <input type="range" id="quality-slider" class="quality-slider" min="10" max="100" value="90" step="5" />
               </div>
             </div>
 
-            <div id="quality-group" class="option-group hidden">
-              <label for="quality-slider" class="option-label">Quality: <span id="quality-value">90</span>%</label>
-              <input type="range" id="quality-slider" class="quality-slider" min="10" max="100" value="90" step="5" />
+            <!-- Convert Button -->
+            <button id="btn-convert" class="btn-convert" disabled>
+              <span class="btn-text">Select a format to convert</span>
+              <span class="btn-loader hidden">
+                <span class="spinner"></span>
+                Converting...
+              </span>
+            </button>
+
+            <!-- Progress Bar -->
+            <div id="progress-section" class="progress-section hidden">
+              <div class="progress-bar-track">
+                <div id="progress-bar" class="progress-bar-fill"></div>
+              </div>
+              <p id="progress-text" class="progress-text">Preparing...</p>
+            </div>
+
+            <!-- Download Section -->
+            <div id="download-section" class="download-section hidden">
+              <div class="download-success">
+                <span class="success-icon">✅</span>
+                <div>
+                  <p class="download-title">Conversion Complete!</p>
+                  <p id="download-meta" class="download-meta">output.png · 0 KB</p>
+                </div>
+              </div>
+              <button id="btn-download" class="btn-download">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Download File
+              </button>
+              <button id="btn-convert-another" class="btn-convert-another">Convert Another File</button>
             </div>
           </div>
+        </main>
 
-          <!-- Convert Button -->
-          <button id="btn-convert" class="btn-convert" disabled>
-            <span class="btn-text">Select a format to convert</span>
-            <span class="btn-loader hidden">
-              <span class="spinner"></span>
-              Converting...
-            </span>
-          </button>
-
-          <!-- Progress Bar -->
-          <div id="progress-section" class="progress-section hidden">
-            <div class="progress-bar-track">
-              <div id="progress-bar" class="progress-bar-fill"></div>
-            </div>
-            <p id="progress-text" class="progress-text">Preparing...</p>
-          </div>
-
-          <!-- Download Section -->
-          <div id="download-section" class="download-section hidden">
-            <div class="download-success">
-              <span class="success-icon">✅</span>
-              <div>
-                <p class="download-title">Conversion Complete!</p>
-                <p id="download-meta" class="download-meta">output.png · 0 KB</p>
+        <!-- Supported Formats Section -->
+        <section class="formats-section">
+          <h2 class="section-title">Supported Conversions</h2>
+          <div class="formats-grid">
+            <div class="format-card">
+              <div class="format-card-icon">🖼️</div>
+              <h3 class="format-card-title">Images</h3>
+              <div class="format-tags">
+                <span class="tag tag-input">PNG</span>
+                <span class="tag tag-input">JPG</span>
+                <span class="tag tag-input">WebP</span>
+                <span class="tag tag-input">BMP</span>
+                <span class="tag tag-input">GIF</span>
+                <span class="tag tag-input">SVG</span>
+                <span class="tag tag-input">ICO</span>
+                <span class="tag tag-input">TIFF</span>
+              </div>
+              <div class="format-arrow">↓ convert to ↓</div>
+              <div class="format-tags">
+                <span class="tag tag-output">PNG</span>
+                <span class="tag tag-output">JPG</span>
+                <span class="tag tag-output">WebP</span>
               </div>
             </div>
-            <button id="btn-download" class="btn-download">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-              Download File
-            </button>
-            <button id="btn-convert-another" class="btn-convert-another">Convert Another File</button>
-          </div>
-        </div>
-      </main>
 
-      <!-- Supported Formats Section -->
-      <section class="formats-section">
-        <h2 class="section-title">Supported Conversions</h2>
-        <div class="formats-grid">
-          <div class="format-card">
-            <div class="format-card-icon">🖼️</div>
-            <h3 class="format-card-title">Images</h3>
-            <div class="format-tags">
-              <span class="tag tag-input">PNG</span>
-              <span class="tag tag-input">JPG</span>
-              <span class="tag tag-input">WebP</span>
-              <span class="tag tag-input">BMP</span>
-              <span class="tag tag-input">GIF</span>
-              <span class="tag tag-input">SVG</span>
-              <span class="tag tag-input">ICO</span>
-              <span class="tag tag-input">TIFF</span>
+            <div class="format-card">
+              <div class="format-card-icon">🎵</div>
+              <h3 class="format-card-title">Audio</h3>
+              <div class="format-tags">
+                <span class="tag tag-input">MP3</span>
+                <span class="tag tag-input">WAV</span>
+                <span class="tag tag-input">OGG</span>
+                <span class="tag tag-input">AAC</span>
+                <span class="tag tag-input">FLAC</span>
+                <span class="tag tag-input">M4A</span>
+              </div>
+              <div class="format-arrow">↓ convert to ↓</div>
+              <div class="format-tags">
+                <span class="tag tag-output">MP3</span>
+                <span class="tag tag-output">WAV</span>
+                <span class="tag tag-output">OGG</span>
+                <span class="tag tag-output">AAC</span>
+                <span class="tag tag-output">FLAC</span>
+                <span class="tag tag-output">OPUS</span>
+              </div>
             </div>
-            <div class="format-arrow">↓ convert to ↓</div>
-            <div class="format-tags">
-              <span class="tag tag-output">PNG</span>
-              <span class="tag tag-output">JPG</span>
-              <span class="tag tag-output">WebP</span>
+
+            <div class="format-card">
+              <div class="format-card-icon">🎬</div>
+              <h3 class="format-card-title">Video</h3>
+              <div class="format-tags">
+                <span class="tag tag-input">MP4</span>
+                <span class="tag tag-input">WebM</span>
+                <span class="tag tag-input">AVI</span>
+                <span class="tag tag-input">MKV</span>
+                <span class="tag tag-input">MOV</span>
+                <span class="tag tag-input">FLV</span>
+              </div>
+              <div class="format-arrow">↓ convert to ↓</div>
+              <div class="format-tags">
+                <span class="tag tag-output">MP4</span>
+                <span class="tag tag-output">WebM</span>
+                <span class="tag tag-output">AVI</span>
+                <span class="tag tag-output">MKV</span>
+                <span class="tag tag-output">GIF</span>
+              </div>
+            </div>
+
+            <div class="format-card">
+              <div class="format-card-icon">📄</div>
+              <h3 class="format-card-title">Documents</h3>
+              <div class="format-tags">
+                <span class="tag tag-input">CSV</span>
+                <span class="tag tag-input">JSON</span>
+                <span class="tag tag-input">YAML</span>
+                <span class="tag tag-input">XML</span>
+                <span class="tag tag-input">MD</span>
+                <span class="tag tag-input">TXT</span>
+              </div>
+              <div class="format-arrow">↓ convert to ↓</div>
+              <div class="format-tags">
+                <span class="tag tag-output">CSV</span>
+                <span class="tag tag-output">JSON</span>
+                <span class="tag tag-output">YAML</span>
+                <span class="tag tag-output">XML</span>
+                <span class="tag tag-output">HTML</span>
+                <span class="tag tag-output">TXT</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- TAB 2: ICON GENERATOR -->
+      <div id="tab-content-icon" class="tab-content hidden">
+        <section class="hero">
+          <h1 class="hero-title">
+            App Icon <span class="gradient-text">Generator</span>
+          </h1>
+          <p class="hero-subtitle">
+            Upload your artwork once. Generate production-ready icons for Windows Desktop, Apple iOS, Android, and Web Favicon (.ico).
+          </p>
+        </section>
+
+        <main class="tool-section">
+          <!-- Icon Upload Box -->
+          <div id="icon-upload-zone" class="upload-zone">
+            <div class="upload-zone-content">
+              <div class="upload-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="4"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+              </div>
+              <p class="upload-text">Upload your Icon or Logo</p>
+              <p class="upload-subtext">Supports PNG, SVG, JPG, WebP (Square recommended)</p>
+            </div>
+            <input type="file" id="icon-file-input" class="file-input" accept="image/*" />
+          </div>
+
+          <!-- Icon Customization & Preview Panel -->
+          <div id="icon-editor-panel" class="editor-panel hidden">
+            <!-- Controls Section -->
+            <div class="controls-card">
+              <h3 class="controls-title">🎨 Customization & Options</h3>
+
+              <!-- Background Options -->
+              <div class="control-group">
+                <label class="control-label">Background Style</label>
+                <div class="bg-options-grid">
+                  <label class="radio-chip active">
+                    <input type="radio" name="icon-bg" value="transparent" checked />
+                    <span>No BG</span>
+                  </label>
+                  <label class="radio-chip">
+                    <input type="radio" name="icon-bg" value="white" />
+                    <span>White BG</span>
+                  </label>
+                  <label class="radio-chip">
+                    <input type="radio" name="icon-bg" value="black" />
+                    <span>Black BG</span>
+                  </label>
+                  <label class="radio-chip">
+                    <input type="radio" name="icon-bg" value="custom" />
+                    <span>Custom BG</span>
+                  </label>
+                  <label class="radio-chip">
+                    <input type="radio" name="icon-bg" value="gradient" />
+                    <span>Gradient</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Color Pickers (hidden unless custom or gradient) -->
+              <div id="icon-color-pickers" class="color-pickers-row hidden">
+                <div class="color-picker-item">
+                  <label for="icon-bg-color1" class="sub-label">Background Color</label>
+                  <input type="color" id="icon-bg-color1" value="#12121a" />
+                </div>
+                <div id="icon-color2-container" class="color-picker-item hidden">
+                  <label for="icon-bg-color2" class="sub-label">Gradient Color 2</label>
+                  <input type="color" id="icon-bg-color2" value="#22d3ee" />
+                </div>
+              </div>
+
+              <!-- Shape & Padding Sliders -->
+              <div class="sliders-row">
+                <div class="control-group">
+                  <label for="icon-padding-slider" class="control-label">
+                    Padding / Inset: <span id="icon-padding-val">10</span>%
+                  </label>
+                  <input type="range" id="icon-padding-slider" min="0" max="40" value="10" step="2" />
+                </div>
+
+                <div class="control-group">
+                  <label for="icon-radius-slider" class="control-label">
+                    Corner Shape: <span id="icon-radius-label">Squircle</span>
+                  </label>
+                  <input type="range" id="icon-radius-slider" min="0" max="50" value="20" step="10" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Platform Previews Grid -->
+            <div class="platform-previews-section">
+              <h3 class="controls-title">📱 Live Platform Previews</h3>
+              <div class="platform-grid">
+                <!-- Windows -->
+                <div class="platform-card">
+                  <div class="platform-header">
+                    <span class="platform-icon">🪟</span>
+                    <span>Windows (.ico)</span>
+                  </div>
+                  <div class="preview-box">
+                    <img id="prev-windows" class="preview-img" alt="Windows icon preview" />
+                  </div>
+                  <span class="platform-tag">icon.ico (256x256)</span>
+                </div>
+
+                <!-- Apple / iOS -->
+                <div class="platform-card">
+                  <div class="platform-header">
+                    <span class="platform-icon">🍎</span>
+                    <span>Apple & iOS</span>
+                  </div>
+                  <div class="preview-box">
+                    <img id="prev-apple" class="preview-img" alt="Apple icon preview" />
+                  </div>
+                  <span class="platform-tag">1024x1024 + iOS AppIcon</span>
+                </div>
+
+                <!-- Android -->
+                <div class="platform-card">
+                  <div class="platform-header">
+                    <span class="platform-icon">🤖</span>
+                    <span>Android</span>
+                  </div>
+                  <div class="preview-box">
+                    <img id="prev-android" class="preview-img" alt="Android icon preview" />
+                  </div>
+                  <span class="platform-tag">mipmap-xxxhdpi (192px)</span>
+                </div>
+
+                <!-- Favicon -->
+                <div class="platform-card">
+                  <div class="platform-header">
+                    <span class="platform-icon">🌐</span>
+                    <span>Website Favicon</span>
+                  </div>
+                  <div class="preview-box">
+                    <img id="prev-favicon" class="preview-img favicon-size" alt="Favicon preview" />
+                  </div>
+                  <span class="platform-tag">favicon.ico + webmanifest</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Generate & Download Package Button -->
+            <div class="action-bar">
+              <button id="btn-download-icons" class="btn-primary-lg">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                <span>Download Complete Icon Package (.ZIP)</span>
+              </button>
+              <button id="btn-change-icon" class="btn-secondary">Upload Different Image</button>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <!-- TAB 3: QR GENERATOR -->
+      <div id="tab-content-qr" class="tab-content hidden">
+        <section class="hero">
+          <h1 class="hero-title">
+            Custom QR Code <span class="gradient-text">Generator</span>
+          </h1>
+          <p class="hero-subtitle">
+            Create high-resolution, beautiful QR codes with custom shapes, eye styles, brand colors, and central logo overlay.
+          </p>
+        </section>
+
+        <main class="qr-layout">
+          <!-- Left Column: Options & Inputs -->
+          <div class="qr-options-column">
+            <!-- Data Type Switcher -->
+            <div class="controls-card">
+              <label class="control-label">1. QR Content Type</label>
+              <div class="qr-types-nav">
+                <button class="qr-type-btn active" data-type="url">🔗 URL</button>
+                <button class="qr-type-btn" data-type="text">📝 Text</button>
+                <button class="qr-type-btn" data-type="phone">📞 Phone</button>
+                <button class="qr-type-btn" data-type="email">✉️ Email</button>
+                <button class="qr-type-btn" data-type="wifi">📶 WiFi</button>
+                <button class="qr-type-btn" data-type="whatsapp">💬 WhatsApp</button>
+                <button class="qr-type-btn" data-type="vcard">🪪 VCard</button>
+              </div>
+
+              <!-- Dynamic Input Fields -->
+              <div id="qr-inputs-container" class="qr-inputs-container">
+                <!-- URL Input -->
+                <div class="qr-input-group" data-for="url">
+                  <label for="qr-url-input" class="sub-label">Website URL</label>
+                  <input type="url" id="qr-url-input" class="form-input" placeholder="https://example.com" value="https://example.com" />
+                </div>
+
+                <!-- Text Input -->
+                <div class="qr-input-group hidden" data-for="text">
+                  <label for="qr-text-input" class="sub-label">Text Content</label>
+                  <textarea id="qr-text-input" class="form-textarea" placeholder="Type your text message here..."></textarea>
+                </div>
+
+                <!-- Phone Input -->
+                <div class="qr-input-group hidden" data-for="phone">
+                  <label for="qr-phone-input" class="sub-label">Phone Number</label>
+                  <input type="tel" id="qr-phone-input" class="form-input" placeholder="+1 (555) 000-0000" />
+                </div>
+
+                <!-- Email Input -->
+                <div class="qr-input-group hidden" data-for="email">
+                  <label for="qr-email-address" class="sub-label">Email Address</label>
+                  <input type="email" id="qr-email-address" class="form-input" placeholder="hello@example.com" />
+                  <label for="qr-email-subject" class="sub-label">Subject (Optional)</label>
+                  <input type="text" id="qr-email-subject" class="form-input" placeholder="Inquiry" />
+                  <label for="qr-email-body" class="sub-label">Body (Optional)</label>
+                  <textarea id="qr-email-body" class="form-textarea" placeholder="Hello..."></textarea>
+                </div>
+
+                <!-- WiFi Input -->
+                <div class="qr-input-group hidden" data-for="wifi">
+                  <label for="qr-wifi-ssid" class="sub-label">Network SSID (Name)</label>
+                  <input type="text" id="qr-wifi-ssid" class="form-input" placeholder="MyHomeWiFi" />
+                  <label for="qr-wifi-pass" class="sub-label">Password</label>
+                  <input type="password" id="qr-wifi-pass" class="form-input" placeholder="WiFi Password" />
+                  <label for="qr-wifi-enc" class="sub-label">Encryption Type</label>
+                  <select id="qr-wifi-enc" class="form-select">
+                    <option value="WPA">WPA/WPA2/WPA3</option>
+                    <option value="WEP">WEP</option>
+                    <option value="nopass">None (Open)</option>
+                  </select>
+                </div>
+
+                <!-- WhatsApp Input -->
+                <div class="qr-input-group hidden" data-for="whatsapp">
+                  <label for="qr-wa-phone" class="sub-label">WhatsApp Number (with country code)</label>
+                  <input type="tel" id="qr-wa-phone" class="form-input" placeholder="15550000000" />
+                  <label for="qr-wa-msg" class="sub-label">Pre-filled Message</label>
+                  <input type="text" id="qr-wa-msg" class="form-input" placeholder="Hello! I would like to inquire about..." />
+                </div>
+
+                <!-- VCard Input -->
+                <div class="qr-input-group hidden" data-for="vcard">
+                  <label for="qr-vcard-name" class="sub-label">Full Name</label>
+                  <input type="text" id="qr-vcard-name" class="form-input" placeholder="John Doe" />
+                  <label for="qr-vcard-mobile" class="sub-label">Mobile Phone</label>
+                  <input type="tel" id="qr-vcard-mobile" class="form-input" placeholder="+15550000000" />
+                  <label for="qr-vcard-email" class="sub-label">Email</label>
+                  <input type="email" id="qr-vcard-email" class="form-input" placeholder="john@company.com" />
+                  <label for="qr-vcard-org" class="sub-label">Organization / Company</label>
+                  <input type="text" id="qr-vcard-org" class="form-input" placeholder="Acme Inc." />
+                </div>
+              </div>
+            </div>
+
+            <!-- Customization Controls -->
+            <div class="controls-card">
+              <h3 class="controls-title">🎨 2. Design & Styling</h3>
+
+              <!-- Module Dots Shape -->
+              <div class="control-group">
+                <label class="control-label">Module Dots Style</label>
+                <div class="option-button-group">
+                  <button class="opt-btn active" data-style-type="module" data-val="square">Square</button>
+                  <button class="opt-btn" data-style-type="module" data-val="dots">Dots</button>
+                  <button class="opt-btn" data-style-type="module" data-val="rounded">Rounded</button>
+                  <button class="opt-btn" data-style-type="module" data-val="extra-rounded">Extra Round</button>
+                </div>
+              </div>
+
+              <!-- Corner Eye Frame Style -->
+              <div class="control-group">
+                <label class="control-label">Corner Eye Frame Shape</label>
+                <div class="option-button-group">
+                  <button class="opt-btn active" data-style-type="eye" data-val="square">Square</button>
+                  <button class="opt-btn" data-style-type="eye" data-val="rounded">Rounded</button>
+                  <button class="opt-btn" data-style-type="eye" data-val="circle">Circle</button>
+                </div>
+              </div>
+
+              <!-- Colors -->
+              <div class="control-group">
+                <label class="control-label">Colors & Background</label>
+                <div class="color-pickers-row">
+                  <div class="color-picker-item">
+                    <label for="qr-fg-color" class="sub-label">QR Color</label>
+                    <input type="color" id="qr-fg-color" value="#ffffff" />
+                  </div>
+
+                  <div class="color-picker-item">
+                    <label for="qr-bg-color" class="sub-label">BG Color</label>
+                    <input type="color" id="qr-bg-color" value="#0a0a0f" />
+                  </div>
+                </div>
+
+                <div class="checkbox-row">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="qr-transparent-bg" />
+                    <span>Transparent Background</span>
+                  </label>
+
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="qr-gradient-toggle" />
+                    <span>Gradient Color</span>
+                  </label>
+                </div>
+
+                <div id="qr-grad-color-row" class="color-picker-item hidden margin-top-sm">
+                  <label for="qr-grad-color2" class="sub-label">Gradient Color 2</label>
+                  <input type="color" id="qr-grad-color2" value="#22d3ee" />
+                </div>
+              </div>
+
+              <!-- Central Logo Overlay -->
+              <div class="control-group">
+                <label class="control-label">🖼️ Center Image / Logo Overlay</label>
+                <div class="logo-upload-wrapper">
+                  <input type="file" id="qr-logo-input" accept="image/*" class="file-input-sm" />
+                  <button id="btn-remove-qr-logo" class="btn-remove-sm hidden">Remove Logo</button>
+                </div>
+
+                <div id="qr-logo-controls" class="margin-top-sm hidden">
+                  <label for="qr-logo-size-slider" class="sub-label">Logo Size: <span id="qr-logo-size-val">20</span>%</label>
+                  <input type="range" id="qr-logo-size-slider" min="10" max="30" value="20" step="2" />
+
+                  <label class="checkbox-label margin-top-sm">
+                    <input type="checkbox" id="qr-logo-bg-toggle" checked />
+                    <span>Add BG Padding circle behind logo (Improves scan reliability)</span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="format-card">
-            <div class="format-card-icon">🎵</div>
-            <h3 class="format-card-title">Audio</h3>
-            <div class="format-tags">
-              <span class="tag tag-input">MP3</span>
-              <span class="tag tag-input">WAV</span>
-              <span class="tag tag-input">OGG</span>
-              <span class="tag tag-input">AAC</span>
-              <span class="tag tag-input">FLAC</span>
-              <span class="tag tag-input">M4A</span>
-            </div>
-            <div class="format-arrow">↓ convert to ↓</div>
-            <div class="format-tags">
-              <span class="tag tag-output">MP3</span>
-              <span class="tag tag-output">WAV</span>
-              <span class="tag tag-output">OGG</span>
-              <span class="tag tag-output">AAC</span>
-              <span class="tag tag-output">FLAC</span>
-              <span class="tag tag-output">OPUS</span>
-            </div>
-          </div>
+          <!-- Right Column: Live QR Preview & Downloads -->
+          <div class="qr-preview-column">
+            <div class="preview-card">
+              <h3 class="controls-title">📱 Live QR Preview</h3>
+              <div class="qr-canvas-wrapper">
+                <div id="qr-preview-container"></div>
+              </div>
 
-          <div class="format-card">
-            <div class="format-card-icon">🎬</div>
-            <h3 class="format-card-title">Video</h3>
-            <div class="format-tags">
-              <span class="tag tag-input">MP4</span>
-              <span class="tag tag-input">WebM</span>
-              <span class="tag tag-input">AVI</span>
-              <span class="tag tag-input">MKV</span>
-              <span class="tag tag-input">MOV</span>
-              <span class="tag tag-input">FLV</span>
-            </div>
-            <div class="format-arrow">↓ convert to ↓</div>
-            <div class="format-tags">
-              <span class="tag tag-output">MP4</span>
-              <span class="tag tag-output">WebM</span>
-              <span class="tag tag-output">AVI</span>
-              <span class="tag tag-output">MKV</span>
-              <span class="tag tag-output">GIF</span>
+              <!-- Export Format Buttons -->
+              <div class="qr-export-actions">
+                <button id="btn-download-qr-png" class="btn-primary">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  <span>Download PNG</span>
+                </button>
+                <button id="btn-download-qr-webp" class="btn-secondary">WEBP</button>
+                <button id="btn-download-qr-svg" class="btn-secondary">SVG Vector</button>
+              </div>
             </div>
           </div>
-
-          <div class="format-card">
-            <div class="format-card-icon">📄</div>
-            <h3 class="format-card-title">Documents</h3>
-            <div class="format-tags">
-              <span class="tag tag-input">CSV</span>
-              <span class="tag tag-input">JSON</span>
-              <span class="tag tag-input">YAML</span>
-              <span class="tag tag-input">XML</span>
-              <span class="tag tag-input">MD</span>
-              <span class="tag tag-input">TXT</span>
-            </div>
-            <div class="format-arrow">↓ convert to ↓</div>
-            <div class="format-tags">
-              <span class="tag tag-output">CSV</span>
-              <span class="tag tag-output">JSON</span>
-              <span class="tag tag-output">YAML</span>
-              <span class="tag tag-output">XML</span>
-              <span class="tag tag-output">HTML</span>
-              <span class="tag tag-output">TXT</span>
-            </div>
-          </div>
-        </div>
-      </section>
+        </main>
+      </div>
 
       <!-- Footer -->
       <footer class="footer">
-        <p>FileForge. 100% client-side file conversion. No data is ever sent to any server.</p>
-        <p class="footer-sub">Powered by FFmpeg.wasm, Canvas API & open-source libraries</p>
+        <p>FileForge. 100% client-side file conversion, icon generation & QR code maker.</p>
+        <p class="footer-sub">Works completely offline in your browser. Powered by HTML5 Canvas & JSZip.</p>
       </footer>
     </div>
 
