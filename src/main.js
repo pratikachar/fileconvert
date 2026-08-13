@@ -82,6 +82,11 @@ const downloadMeta = $('#download-meta');
 const btnDownload = $('#btn-download');
 const btnConvertAnother = $('#btn-convert-another');
 
+const outputNameInput = $('#output-name');
+const resizeGroup = $('#resize-group');
+const imgResizeInput = $('#img-resize');
+const btnCopy = $('#btn-copy');
+
 let currentFile = null;
 let convertedBlob = null;
 let convertedFileName = '';
@@ -130,6 +135,7 @@ function setupFileConverter() {
 
   // Download actions
   btnDownload.addEventListener('click', downloadFile);
+  btnCopy.addEventListener('click', copyConvertedToClipboard);
   btnConvertAnother.addEventListener('click', resetToUpload);
 }
 
@@ -161,6 +167,12 @@ function handleFile(file) {
     qualityGroup.classList.remove('hidden');
   } else {
     qualityGroup.classList.add('hidden');
+  }
+
+  if (info.category === 'image') {
+    resizeGroup.classList.remove('hidden');
+  } else {
+    resizeGroup.classList.add('hidden');
   }
 
   uploadZone.style.display = 'none';
@@ -201,6 +213,9 @@ function resetToUpload() {
 
   outputFormat.innerHTML = '<option value="">Select format...</option>';
   qualityGroup.classList.add('hidden');
+  resizeGroup.classList.add('hidden');
+  outputNameInput.value = '';
+  imgResizeInput.value = '';
   qualitySlider.value = 90;
   qualityValue.textContent = '90';
 }
@@ -246,7 +261,11 @@ async function startConversion() {
 
     switch (info.category) {
       case 'image':
-        blob = await convertImage(currentFile, targetExt, { quality, onProgress });
+        blob = await convertImage(currentFile, targetExt, {
+          quality,
+          maxDimension: parseInt(imgResizeInput.value, 10) || 0,
+          onProgress,
+        });
         break;
       case 'audio':
       case 'video':
@@ -260,7 +279,8 @@ async function startConversion() {
     }
 
     convertedBlob = blob;
-    const baseName = currentFile.name.replace(/\.[^.]+$/, '');
+    const customName = outputNameInput.value.trim().replace(/\.[^.]+$/, '');
+    const baseName = customName || currentFile.name.replace(/\.[^.]+$/, '');
     convertedFileName = `${baseName}.${targetExt}`;
 
     downloadMeta.textContent = `${convertedFileName} · ${formatFileSize(blob.size)}`;
@@ -286,6 +306,19 @@ function downloadFile() {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+async function copyConvertedToClipboard() {
+  if (!convertedBlob) return;
+  try {
+    const item = {};
+    item[convertedBlob.type || 'image/png'] = convertedBlob;
+    await navigator.clipboard.write([new ClipboardItem(item)]);
+    showToast('Copied to clipboard!');
+  } catch (err) {
+    console.error('Clipboard copy failed:', err);
+    showToast('Copy failed. Your browser may not support clipboard for this format.');
+  }
 }
 
 function showProgress() {
@@ -530,6 +563,9 @@ function setupQRGenerator() {
   $('#qr-bg-color').addEventListener('input', updateQRPreview);
   $('#qr-transparent-bg').addEventListener('change', updateQRPreview);
 
+  const qrEcLevel = $('#qr-ec-level');
+  if (qrEcLevel) qrEcLevel.addEventListener('change', updateQRPreview);
+
   $('#qr-gradient-toggle').addEventListener('change', (e) => {
     const isGrad = e.target.checked;
     const gradRow = $('#qr-grad-color-row');
@@ -624,6 +660,32 @@ function getQRPayload() {
       const org = $('#qr-vcard-org').value.trim() || 'Acme Inc.';
       return `BEGIN:VCARD\nVERSION:3.0\nN:${name}\nFN:${name}\nORG:${org}\nTEL;TYPE=CELL:${mobile}\nEMAIL:${email}\nEND:VCARD`;
     }
+    case 'sms': {
+      const num = $('#qr-sms-number').value.trim();
+      const msg = encodeURIComponent($('#qr-sms-msg').value.trim());
+      if (!num) return 'SMSTO:15550000000:';
+      return `SMSTO:${num}:${msg}`;
+    }
+    case 'geo': {
+      const lat = $('#qr-geo-lat').value.trim() || '0';
+      const lng = $('#qr-geo-lng').value.trim() || '0';
+      return `geo:${lat},${lng}`;
+    }
+    case 'event': {
+      const title = $('#qr-event-title').value.trim() || 'Event';
+      const start = $('#qr-event-start').value.trim();
+      const end = $('#qr-event-end').value.trim();
+      const loc = $('#qr-event-location').value.trim();
+      const desc = $('#qr-event-desc').value.trim();
+      let v = 'BEGIN:VEVENT\n';
+      v += `SUMMARY:${title}\n`;
+      if (start) v += `DTSTART:${start}\n`;
+      if (end) v += `DTEND:${end}\n`;
+      if (loc) v += `LOCATION:${loc}\n`;
+      if (desc) v += `DESCRIPTION:${desc}\n`;
+      v += 'END:VEVENT';
+      return v;
+    }
     default:
       return 'https://example.com';
   }
@@ -638,6 +700,7 @@ function getQROptions() {
   const logoSizePct = parseInt($('#qr-logo-size-slider').value);
   const logoBgToggle = $('#qr-logo-bg-toggle').checked;
 
+  const ecEl = document.getElementById('qr-ec-level');
   return {
     moduleStyle: qrModuleStyle,
     eyeStyle: qrEyeStyle,
@@ -645,6 +708,7 @@ function getQROptions() {
     bgColor,
     useGradient,
     gradientColor2,
+    errorCorrectionLevel: ecEl && ecEl.value ? ecEl.value : 'H',
     logoImg: qrLogoImg,
     logoSizePct,
     logoBgToggle,
@@ -662,6 +726,14 @@ async function updateQRPreview() {
     const canvas = await renderQRCanvas(payload, { ...options, size: 512 });
     container.innerHTML = '';
     container.appendChild(canvas);
+
+    const mini = document.getElementById('qr-mini-preview');
+    if (mini) {
+      mini.innerHTML = '';
+      const img = new Image();
+      img.src = canvas.toDataURL();
+      mini.appendChild(img);
+    }
   } catch (err) {
     console.error('Error generating QR preview:', err);
   }
@@ -740,6 +812,31 @@ function init() {
   setupFileConverter();
   setupIconGenerator();
   setupQRGenerator();
+  setupPasteUpload();
+  registerServiceWorker();
+}
+
+function setupPasteUpload() {
+  window.addEventListener('paste', (e) => {
+    const files = e.clipboardData && e.clipboardData.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    const converterActive = !document.getElementById('tab-content-converter').classList.contains('hidden');
+    const iconActive = !document.getElementById('tab-content-icon').classList.contains('hidden');
+    if (converterActive && !currentFile) {
+      handleFile(file);
+    } else if (iconActive && !iconSourceImg) {
+      loadIconSourceImage(file);
+    }
+  });
+}
+
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
 }
 
 init();

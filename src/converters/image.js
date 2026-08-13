@@ -15,7 +15,7 @@ import { OUTPUT_MIME_TYPES } from './registry.js';
  * @returns {Promise<Blob>} - Converted image blob
  */
 export async function convertImage(file, outputExt, options = {}) {
-  const { quality = 0.9, onProgress = () => {} } = options;
+  const { quality = 0.9, maxDimension = 0, onProgress = () => {} } = options;
 
   onProgress(10, 'Reading image...');
 
@@ -29,8 +29,15 @@ export async function convertImage(file, outputExt, options = {}) {
 
   // Draw onto canvas and export
   const canvas = document.createElement('canvas');
-  canvas.width = img.naturalWidth || img.width;
-  canvas.height = img.naturalHeight || img.height;
+  let drawW = img.naturalWidth || img.width;
+  let drawH = img.naturalHeight || img.height;
+  if (drawW && drawH && maxDimension > 0) {
+    const scale = Math.min(1, maxDimension / Math.max(drawW, drawH));
+    drawW = Math.max(1, Math.round(drawW * scale));
+    drawH = Math.max(1, Math.round(drawH * scale));
+  }
+  canvas.width = drawW;
+  canvas.height = drawH;
 
   const ctx = canvas.getContext('2d');
 

@@ -56,6 +56,10 @@
   box-sizing: border-box;
 }
 
+.hidden {
+  display: none !important;
+}
+
 html {
   font-size: 16px;
   scroll-behavior: smooth;
@@ -80,16 +84,20 @@ body {
   width: 100%;
   height: 100%;
   z-index: -2;
-  background:
-    radial-gradient(ellipse 80% 50% at 20% 20%, rgba(168, 85, 247, 0.08), transparent),
-    radial-gradient(ellipse 60% 40% at 80% 80%, rgba(34, 211, 238, 0.06), transparent),
-    radial-gradient(ellipse 50% 60% at 50% 50%, rgba(236, 72, 153, 0.04), transparent);
-  animation: bgPulse 12s ease-in-out infinite alternate;
+  background-color: #08080f;
+  background-image:
+    radial-gradient(58% 48% at 14% 18%, rgba(99, 102, 241, 0.10), transparent 70%),
+    radial-gradient(48% 44% at 86% 24%, rgba(217, 70, 160, 0.08), transparent 70%),
+    radial-gradient(54% 52% at 78% 84%, rgba(45, 212, 191, 0.07), transparent 70%),
+    radial-gradient(46% 46% at 22% 82%, rgba(139, 92, 246, 0.06), transparent 70%),
+    radial-gradient(120% 120% at 50% 50%, transparent 52%, rgba(0, 0, 0, 0.55) 100%);
+  background-attachment: fixed;
+  animation: bgPulse 16s ease-in-out infinite alternate;
 }
 
 @keyframes bgPulse {
-  0% { opacity: 0.7; transform: scale(1); }
-  100% { opacity: 1; transform: scale(1.05); }
+  0% { opacity: 0.85; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1.04); }
 }
 
 .bg-grid {
@@ -99,10 +107,10 @@ body {
   width: 100%;
   height: 100%;
   z-index: -1;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 60px 60px;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1.4px);
+  background-size: 22px 22px;
+  opacity: 0.55;
 }
 
 /* --- App Container --- */
@@ -172,6 +180,17 @@ body {
 
 .tab-icon {
   font-size: 1.1rem;
+}
+
+.tab-label-short {
+  display: none;
+}
+
+.field-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+  line-height: 1.4;
 }
 
 /* --- Tab Contents --- */
@@ -723,7 +742,7 @@ body {
 
 .formats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 16px;
 }
 
@@ -943,6 +962,29 @@ body {
 
   .select-format {
     font-size: 16px;
+  }
+
+  .nav-tabs {
+    gap: 6px;
+    padding: 5px;
+  }
+
+  .nav-tab {
+    padding: 10px 10px;
+    font-size: 0.8rem;
+    gap: 6px;
+  }
+
+  .tab-label-full {
+    display: none;
+  }
+
+  .tab-label-short {
+    display: inline;
+  }
+
+  .tab-icon {
+    font-size: 1.3rem;
   }
 }
 
@@ -1455,12 +1497,51 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .qr-preview-column {
+    order: 0;
+  }
+
   .preview-card {
     position: static;
+    padding: 20px;
+  }
+
+  .qr-canvas-wrapper {
+    max-width: 240px;
+    margin: 0 auto;
   }
 
   .sliders-row {
     grid-template-columns: 1fr;
+  }
+
+  #tab-content-qr {
+    padding-bottom: 140px;
+  }
+
+  .qr-mini-preview {
+    display: block !important;
+    position: fixed;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    width: 104px;
+    height: 104px;
+    z-index: 60;
+    background: rgba(10, 10, 15, 0.85);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 6px;
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(8px);
+  }
+
+  .qr-mini-preview img,
+  .qr-mini-preview canvas {
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    display: block;
   }
 }
 

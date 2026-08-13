@@ -1,0 +1,14 @@
+{
+  "name": "FileForge",
+  "short_name": "FileForge",
+  "description": "Free, private, client-side file converter, icon generator and QR code maker.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

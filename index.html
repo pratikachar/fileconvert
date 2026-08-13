@@ -3,6 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+        background-color: #08080f;
+        color: #e5e7eb;
+        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .bg-gradient {
+        position: fixed; inset: 0; z-index: -2;
+        background-color: #08080f;
+        background-image:
+          radial-gradient(58% 48% at 14% 18%, rgba(99,102,241,0.10), transparent 70%),
+          radial-gradient(48% 44% at 86% 24%, rgba(217,70,160,0.08), transparent 70%),
+          radial-gradient(54% 52% at 78% 84%, rgba(45,212,191,0.07), transparent 70%),
+          radial-gradient(46% 46% at 22% 82%, rgba(139,92,246,0.06), transparent 70%),
+          radial-gradient(120% 120% at 50% 50%, transparent 52%, rgba(0,0,0,0.55) 100%);
+        background-attachment: fixed;
+      }
+      .bg-grid {
+        position: fixed; inset: 0; z-index: -1; pointer-events: none;
+        background-image: radial-gradient(rgba(255,255,255,0.035) 1px, transparent 1.4px);
+        background-size: 22px 22px; opacity: 0.55;
+      }
+    </style>
     <title>FileForge | Free Online Converter, App Icon & QR Code Generator</title>
     <meta name="description" content="Convert files, generate all app icons (Windows, iOS, Android, Favicon ICO), and design customized QR codes for free, 100% in your browser. Complete privacy, zero server uploads." />
     <meta name="keywords" content="file converter, icon generator, app icon generator, qr generator, qr code maker, favicon generator, free, online, privacy" />
@@ -10,6 +39,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+    <meta property="og:title" content="FileForge | Free Online Converter, Icon & QR Generator" />
+    <meta property="og:description" content="Convert files, generate app icons, and design QR codes for free, 100% in your browser. Private and offline." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/favicon.svg" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="FileForge | Free Online Converter, Icon & QR Generator" />
+    <meta name="twitter:description" content="Convert files, generate app icons, and design QR codes for free, 100% in your browser. Private and offline." />
+    <link rel="manifest" href="/manifest.webmanifest" />
   </head>
   <body>
     <!-- Background animated gradients -->
@@ -34,15 +71,18 @@
         <nav class="nav-tabs" role="tablist">
           <button class="nav-tab active" id="tab-btn-converter" data-tab="converter" role="tab" aria-selected="true">
             <span class="tab-icon">📁</span>
-            <span>File Converter</span>
+            <span class="tab-label-full">File Converter</span>
+            <span class="tab-label-short">Convert</span>
           </button>
           <button class="nav-tab" id="tab-btn-icon" data-tab="icon" role="tab" aria-selected="false">
             <span class="tab-icon">🎨</span>
-            <span>Icon Generator</span>
+            <span class="tab-label-full">Icon Generator</span>
+            <span class="tab-label-short">Icon</span>
           </button>
           <button class="nav-tab" id="tab-btn-qr" data-tab="qr" role="tab" aria-selected="false">
             <span class="tab-icon">📱</span>
-            <span>QR Generator</span>
+            <span class="tab-label-full">QR Generator</span>
+            <span class="tab-label-short">QR</span>
           </button>
         </nav>
       </header>
@@ -111,10 +151,20 @@
               <div id="quality-group" class="option-group hidden">
                 <label for="quality-slider" class="option-label">Quality: <span id="quality-value">90</span>%</label>
                 <input type="range" id="quality-slider" class="quality-slider" min="10" max="100" value="90" step="5" />
-              </div>
             </div>
 
-            <!-- Convert Button -->
+            <div id="filename-group" class="option-group">
+              <label for="output-name" class="option-label">Output File Name (optional)</label>
+              <input type="text" id="output-name" class="form-input" placeholder="leave blank for auto name" />
+            </div>
+
+            <div id="resize-group" class="option-group hidden">
+              <label for="img-resize" class="option-label">Resize max dimension (px, optional)</label>
+              <input type="number" id="img-resize" class="form-input" min="16" max="8192" placeholder="e.g. 1024" />
+            </div>
+          </div>
+
+          <!-- Convert Button -->
             <button id="btn-convert" class="btn-convert" disabled>
               <span class="btn-text">Select a format to convert</span>
               <span class="btn-loader hidden">
@@ -148,6 +198,7 @@
                 </svg>
                 Download File
               </button>
+              <button id="btn-copy" class="btn-secondary">Copy to Clipboard</button>
               <button id="btn-convert-another" class="btn-convert-another">Convert Another File</button>
             </div>
           </div>
@@ -419,11 +470,12 @@
         </section>
 
         <main class="qr-layout">
+          <div id="qr-mini-preview" class="qr-mini-preview hidden" aria-hidden="true"></div>
           <!-- Left Column: Options & Inputs -->
           <div class="qr-options-column">
             <!-- Data Type Switcher -->
             <div class="controls-card">
-              <label class="control-label">1. QR Content Type</label>
+              <label class="control-label">QR Content Type</label>
               <div class="qr-types-nav">
                 <button class="qr-type-btn active" data-type="url">🔗 URL</button>
                 <button class="qr-type-btn" data-type="text">📝 Text</button>
@@ -432,6 +484,9 @@
                 <button class="qr-type-btn" data-type="wifi">📶 WiFi</button>
                 <button class="qr-type-btn" data-type="whatsapp">💬 WhatsApp</button>
                 <button class="qr-type-btn" data-type="vcard">🪪 VCard</button>
+                <button class="qr-type-btn" data-type="sms">💬 SMS</button>
+                <button class="qr-type-btn" data-type="geo">📍 Location</button>
+                <button class="qr-type-btn" data-type="event">📅 Event</button>
               </div>
 
               <!-- Dynamic Input Fields -->
@@ -497,12 +552,54 @@
                   <label for="qr-vcard-org" class="sub-label">Organization / Company</label>
                   <input type="text" id="qr-vcard-org" class="form-input" placeholder="Acme Inc." />
                 </div>
+
+                <!-- SMS Input -->
+                <div class="qr-input-group hidden" data-for="sms">
+                  <label for="qr-sms-number" class="sub-label">Phone Number</label>
+                  <input type="tel" id="qr-sms-number" class="form-input" placeholder="+15550000000" />
+                  <label for="qr-sms-msg" class="sub-label">Message</label>
+                  <textarea id="qr-sms-msg" class="form-textarea" placeholder="Hello..."></textarea>
+                </div>
+
+                <!-- Geo Input -->
+                <div class="qr-input-group hidden" data-for="geo">
+                  <label for="qr-geo-lat" class="sub-label">Latitude</label>
+                  <input type="text" id="qr-geo-lat" class="form-input" placeholder="37.421998" />
+                  <label for="qr-geo-lng" class="sub-label">Longitude</label>
+                  <input type="text" id="qr-geo-lng" class="form-input" placeholder="-122.084" />
+                </div>
+
+                <!-- Event Input -->
+                <div class="qr-input-group hidden" data-for="event">
+                  <label for="qr-event-title" class="sub-label">Event Title</label>
+                  <input type="text" id="qr-event-title" class="form-input" placeholder="Team Meeting" />
+                  <label for="qr-event-start" class="sub-label">Start (YYYYMMDDTHHMMSS)</label>
+                  <input type="text" id="qr-event-start" class="form-input" placeholder="20260101T100000" />
+                  <label for="qr-event-end" class="sub-label">End (YYYYMMDDTHHMMSS)</label>
+                  <input type="text" id="qr-event-end" class="form-input" placeholder="20260101T110000" />
+                  <label for="qr-event-location" class="sub-label">Location</label>
+                  <input type="text" id="qr-event-location" class="form-input" placeholder="Office HQ" />
+                  <label for="qr-event-desc" class="sub-label">Description</label>
+                  <textarea id="qr-event-desc" class="form-textarea" placeholder="Quarterly sync"></textarea>
+                </div>
+              </div>
+
+              <!-- Error Correction -->
+              <div class="control-group">
+                <label class="control-label">Error Correction (Scan Robustness)</label>
+                <select id="qr-ec-level" class="form-select">
+                  <option value="L">L (Low ~7%)</option>
+                  <option value="M">M (Medium ~15%)</option>
+                  <option value="Q">Q (Quartile ~25%)</option>
+                  <option value="H" selected>H (High ~30%)</option>
+                </select>
+                <p class="field-hint">Higher levels make the code easier to scan (use H when adding a logo) but denser.</p>
               </div>
             </div>
 
             <!-- Customization Controls -->
             <div class="controls-card">
-              <h3 class="controls-title">🎨 2. Design & Styling</h3>
+              <h3 class="controls-title">🎨 Design & Styling</h3>
 
               <!-- Module Dots Shape -->
               <div class="control-group">
