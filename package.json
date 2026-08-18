@@ -15,9 +15,11 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
+    "@imgly/background-removal": "^1.7.0",
     "js-yaml": "^4.1.0",
     "jszip": "^3.10.1",
     "marked": "^15.0.7",
+    "onnxruntime-web": "^1.21.0",
     "qrcode": "^1.5.4"
   }
 }

@@ -3,7 +3,6 @@
  * Orchestrates File Conversion, Icon Generator, and QR Code Generator
  */
 
-import './style.css';
 import {
   FORMAT_REGISTRY,
   CATEGORIES,
@@ -17,6 +16,7 @@ import { convertMedia } from './converters/media.js';
 import { convertDocument } from './converters/document.js';
 import { renderIconCanvas, buildIconPackage } from './generators/iconGenerator.js';
 import { renderQRCanvas, renderQRSVG } from './generators/qrGenerator.js';
+import { setupImageEditor } from './editors/imageEditor.js';
 
 // Helper DOM selector
 const $ = (sel) => document.querySelector(sel);
@@ -812,6 +812,7 @@ function init() {
   setupFileConverter();
   setupIconGenerator();
   setupQRGenerator();
+  setupImageEditor();
   setupPasteUpload();
   registerServiceWorker();
 }

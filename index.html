@@ -32,6 +32,7 @@
         background-size: 22px 22px; opacity: 0.55;
       }
     </style>
+    <link rel="stylesheet" href="/src/style.css" />
     <title>FileForge | Free Online Converter, App Icon & QR Code Generator</title>
     <meta name="description" content="Convert files, generate all app icons (Windows, iOS, Android, Favicon ICO), and design customized QR codes for free, 100% in your browser. Complete privacy, zero server uploads." />
     <meta name="keywords" content="file converter, icon generator, app icon generator, qr generator, qr code maker, favicon generator, free, online, privacy" />
@@ -83,6 +84,11 @@
             <span class="tab-icon">📱</span>
             <span class="tab-label-full">QR Generator</span>
             <span class="tab-label-short">QR</span>
+          </button>
+          <button class="nav-tab" id="tab-btn-editor" data-tab="editor" role="tab" aria-selected="false">
+            <span class="tab-icon">🖼️</span>
+            <span class="tab-label-full">Image Editor</span>
+            <span class="tab-label-short">Edit</span>
           </button>
         </nav>
       </header>
@@ -700,6 +706,68 @@
             </div>
           </div>
         </main>
+      </div>
+
+      <!-- TAB 4: IMAGE EDITOR -->
+      <div id="tab-content-editor" class="tab-content hidden">
+        <section class="editor-shell">
+          <!-- Empty state -->
+          <div id="editor-empty" class="upload-zone editor-empty">
+            <div class="upload-inner">
+              <div class="upload-icon">🖼️</div>
+              <h2 class="upload-text">Edit an Image</h2>
+              <p class="upload-subtext">Remove backgrounds, add text, filters, crop, resize &amp; compress. 100% in your browser.</p>
+              <button id="editor-pick" class="btn-primary">Choose Image</button>
+              <p class="upload-subtext" style="margin-top:10px">or drop / paste an image</p>
+            </div>
+            <input id="editor-file" type="file" accept="image/*" hidden />
+          </div>
+
+          <!-- Workspace -->
+          <div id="editor-workspace" class="editor-workspace hidden">
+            <div class="editor-toolbar" id="editor-toolbar">
+              <button class="tool-btn" data-tool="filters">🎚️ Filters</button>
+              <button class="tool-btn" data-tool="text">🔤 Text</button>
+              <button class="tool-btn" data-tool="crop">✂️ Crop</button>
+              <button class="tool-btn" data-tool="resize">📐 Resize</button>
+              <button class="tool-btn" data-tool="compress">🗜️ Compress</button>
+              <button class="tool-btn" data-tool="bg">🪄 BG Remove</button>
+            </div>
+
+            <div class="editor-body">
+              <div class="editor-stage" id="editor-stage">
+                <canvas id="editor-canvas"></canvas>
+                <div id="editor-overlay" class="editor-overlay"></div>
+                <div id="editor-loading" class="editor-loading hidden">
+                  <div class="spinner"></div>
+                  <span id="editor-loading-text">Working…</span>
+                </div>
+              </div>
+
+              <aside class="editor-side" id="editor-controls">
+                <p class="editor-hint">Pick a tool above to start editing.</p>
+              </aside>
+            </div>
+
+            <div class="editor-foot">
+              <div class="editor-history">
+                <button id="editor-undo" class="btn-ghost" disabled>↶ Undo</button>
+                <button id="editor-redo" class="btn-ghost" disabled>↳ Redo</button>
+                <button id="editor-reset" class="btn-ghost">⟲ Reset</button>
+              </div>
+              <div class="editor-export">
+                <select id="editor-out-fmt" class="form-select">
+                  <option value="image/png">PNG</option>
+                  <option value="image/jpeg">JPG</option>
+                  <option value="image/webp">WEBP</option>
+                </select>
+                <button id="editor-copy" class="btn-secondary">📋 Copy</button>
+                <button id="editor-share" class="btn-secondary">📤 Share</button>
+                <button id="editor-download" class="btn-primary">⬇ Download</button>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
 
       <!-- Footer -->

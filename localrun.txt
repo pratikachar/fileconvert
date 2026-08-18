@@ -4,17 +4,9 @@ npm run dev
 
 Then open the link it prints — usually http://localhost:5173
 
-(There's no live production link yet since you haven't deployed/pushed to Netlify or Vercel.)
 
 
-
-Since your `vercel.json` is already in the repo, Vercel will work automatically:
-
-1. Go to **vercel.com** → sign up → **Add New Project** → **Import Git Repository**
-2. Connect GitHub → select `fileconvert`
-3. Vercel auto-detects **Vite** → leave defaults (build `npm run build`, output `dist`)
-4. Click **Deploy** → done, you get a free `your-app.vercel.app` link.
 
 The COOP/COEP headers FFmpeg needs come straight from your `vercel.json` — no extra config.
 
-One quick tip: right after it deploys, test 1 image, 1 document, 1 audio, and 1 video conversion from the live link (as we discussed) to confirm the FFmpeg codecs work in production.
+https://fileforge-phi.vercel.app/

@@ -965,14 +965,17 @@ body {
   }
 
   .nav-tabs {
-    gap: 6px;
+    gap: 4px;
     padding: 5px;
   }
 
   .nav-tab {
-    padding: 10px 10px;
-    font-size: 0.8rem;
-    gap: 6px;
+    padding: 8px 4px;
+    font-size: 0.72rem;
+    gap: 4px;
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
   }
 
   .tab-label-full {
@@ -981,10 +984,14 @@ body {
 
   .tab-label-short {
     display: inline;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: clip;
+    white-space: nowrap;
   }
 
   .tab-icon {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
   }
 }
 
@@ -1542,6 +1549,279 @@ body {
     height: 100%;
     border-radius: 8px;
     display: block;
+  }
+}
+
+/* ============================================
+   Image Editor
+   ============================================ */
+.editor-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 0 40px;
+}
+
+.editor-empty {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.editor-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.tool-btn {
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.tool-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.editor-body {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.editor-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: var(--radius);
+  background:
+    linear-gradient(45deg, rgba(255,255,255,0.04) 25%, transparent 25%) 0 0/22px 22px,
+    linear-gradient(-45deg, rgba(255,255,255,0.04) 25%, transparent 25%) 0 0/22px 22px,
+    var(--surface-1);
+  overflow: hidden;
+}
+
+#editor-canvas {
+  max-width: 100%;
+  max-height: 68vh;
+  display: block;
+  border-radius: 8px;
+  box-shadow: var(--shadow-md);
+}
+
+.editor-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+.editor-side {
+  width: 320px;
+  flex: 0 0 320px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.editor-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 6px 0;
+}
+
+.editor-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.editor-actions .btn-primary,
+.editor-actions .btn-secondary {
+  flex: 1;
+}
+
+.range-val {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+#t-emoji-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2em, 1fr));
+  gap: 4px;
+  margin: 8px 0 2px;
+  padding: 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  max-width: 100%;
+  overflow: hidden;
+}
+#t-emoji-picker[hidden] {
+  display: none;
+}
+.emoji-btn {
+  font-size: 1.15rem;
+  line-height: 1;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.emoji-btn:hover {
+  background: rgba(99,102,241,0.2);
+}
+
+.control-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  margin: 8px 0;
+  cursor: pointer;
+}
+
+.license-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: rgba(99,102,241,0.08);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 10px 0;
+  line-height: 1.5;
+}
+
+.license-note a { color: var(--accent); }
+
+.crop-box {
+  position: absolute;
+  border: 2px dashed var(--accent);
+  box-shadow: 0 0 0 100vmax rgba(0,0,0,0.55);
+  cursor: move;
+  box-sizing: border-box;
+}
+
+.text-overlay {
+  user-select: none;
+  white-space: pre;
+  pointer-events: auto;
+  line-height: 1;
+  transform: translate(0, 0);
+}
+
+.editor-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--border-color);
+  padding-top: 16px;
+}
+
+.editor-history,
+.editor-export {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.editor-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(8,8,15,0.7);
+  backdrop-filter: blur(4px);
+  z-index: 20;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.spinner {
+  width: 38px;
+  height: 38px;
+  border: 4px solid rgba(255,255,255,0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 12px 18px;
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s ease;
+  z-index: 200;
+  font-size: 0.9rem;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (max-width: 840px) {
+  .editor-body {
+    flex-direction: column;
+  }
+  .editor-side {
+    width: 100%;
+    flex: 1 1 auto;
+  }
+  .editor-toolbar {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    padding-bottom: 4px;
+  }
+  .tool-btn {
+    flex: 0 0 auto;
+  }
+  #editor-canvas {
+    max-height: 52vh;
   }
 }
 

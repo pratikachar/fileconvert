@@ -13,5 +13,11 @@
         }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/imgly-data/(.*)",
+      "destination": "https://staticimgly.com/@imgly/background-removal-data/$1"
+    }
   ]
 }

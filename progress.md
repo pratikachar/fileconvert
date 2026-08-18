@@ -1,4 +1,4 @@
-# FileForge — File Converter, Icon & QR Generator
+# FileForge — File Converter, Icon, Image Editor & QR Generator
 
 ## File Architecture Map
 - `index.html` — 3-tab app shell (File Converter, Icon Generator, QR Generator) + OG/PWA meta
@@ -6,7 +6,9 @@
 - `netlify.toml` / `vercel.json` — Static deploy + COOP/COEP headers (FFmpeg.wasm requires them)
 - `public/manifest.webmanifest` — PWA manifest
 - `public/sw.js` — Service worker (offline app shell caching)
-- `src/main.js` — Tab nav, converter, icon, QR orchestration + paste-upload + PWA register
+- `src/main.js` — Tab nav (4 tabs), converter, icon, QR, editor orchestration + paste-upload + PWA register
+- `src/editors/imageEditor.js` — Image Editor orchestrator: canvas, history (undo/redo/reset), filters, text, crop, resize, compress, export (download/copy/share)
+- `src/editors/bgRemove.js` — Background removal via @imgly/background-removal (on-demand; models stream through the /imgly-data proxy; Fast/Balanced/Best, license gate for heavy)
 - `src/converters/registry.js` — Format registry (input -> category -> outputs), MIME types
 - `src/converters/image.js` — Canvas image conversion (+ optional resize)
 - `src/converters/media.js` — FFmpeg.wasm audio/video conversion
@@ -49,7 +51,7 @@
 - TIFF input unsupported in Firefox / older Safari
 - WMA input depends on prebuilt @ffmpeg/core codecs (untested)
 - FFmpeg core (~31MB) streams from jsdelivr CDN on first use per browser
-- PWA service worker is progressive: if COEP blocks SW registration in some browsers, app still works (just no offline). Failure is caught silently.
+- PWA service worker is now network-only (no caching) — always fresh, still installable; offline caching intentionally dropped (features need CDNs anyway)
 - og:image points to /favicon.svg — replace with a real social preview PNG for best link previews.
 
 ## Next Steps
@@ -57,4 +59,100 @@
 - [ ] Verify QR SMS/Geo/Event + error-correction scanning
 - [ ] Verify paste-upload + copy-to-clipboard in browser
 - [ ] (Optional) Replace og:image with a proper preview image
+
+## Image Editor (added)
+- New 4th tab "Edit" (icon + short label "Edit"); mobile nav fits 4 tabs (flex, short labels).
+- Tools: Filters/Adjust, Text+emoji (draggable), Crop (drag handles), Resize (aspect-locked), Compress (target KB), BG Remove (@imgly, Fast default, license gate for Balanced/Best).
+- Export: Download (PNG/JPG/WEBP), Copy-to-clipboard, Web Share API.
+- Deps added: @imgly/background-removal, onnxruntime-web (dynamic-imported, lazy chunks; onnxruntime wasm ~23MB streams lazily through the /imgly-data proxy only on first bg-removal use).
+- UI labels @imgly as free; heavy models show non-commercial license note + acknowledgment checkbox.
+
+## Image Editor — test checklist
+- [ ] 4 tabs fit on 360/375px without overflow
+- [ ] Upload via picker / drop / paste
+- [ ] Each tool applies + Undo/Redo/Reset works
+- [ ] BG Remove live (model download ~40MB fast)
+- [ ] Magic Remove local inpaint works; Cloud AI scaffold is optional/experimental
+- [ ] Download / Copy / Share on desktop + mobile
 - [ ] Commit, push, deploy to Vercel/Netlify
+
+## BUG FIXED: Background removal failed (CORS/COEP)
+- Symptom: BG Remove showed only a toast, no result; models never loaded.
+- Root cause: @imgly/background-removal fetches model + wasm from `staticimgly.com` via `fetch()` (CORS mode), but staticimgly sends `Cross-Origin-Resource-Policy: cross-origin` with NO `Access-Control-Allow-Origin`. Under COEP `require-corp` (required by FFmpeg.wasm + onnxruntime) the cross-origin `fetch` is blocked -> BG removal fails. Models are also split into hundreds of hashed 4MB chunks (Fast ~44MB, Balanced ~88MB, Best ~176MB), so self-hosting would mean committing ~300MB.
+- Fix (proxy, zero repo bloat): point @imgly `publicPath` to same-origin `/imgly-data/1.7.0/dist/` and proxy that path to staticimgly:
+  - `src/editors/bgRemove.js`: added `publicPath: '/imgly-data/1.7.0/dist/'`
+  - `vite.config.js`: dev `server.proxy['/imgly-data']` -> `https://staticimgly.com` (rewrite to `/@imgly/background-removal-data/*`)
+  - `vercel.json`: `rewrites` `/imgly-data/(.*)` -> `https://staticimgly.com/@imgly/background-removal-data/$1`
+  - `netlify.toml`: `[[redirects]]` `/imgly-data/*` -> same (status 200, force)
+  - `src/editors/imageEditor.js`: BG-remove error toast now shows the real message for diagnosis.
+- Verified: dev proxy returns `resources.json` HTTP 200 (22759 B) and a model chunk HTTP 200 (4194304 B) same-origin.
+- Note: works in dev (Vite proxy) and prod (rewrite/redirect). User must test in browser; first BG use downloads Fast model (~40MB) once per browser.
+
+## BUG FIXED: Magic Remove (OpenCV) failed — two root causes
+- Root cause A (load): `magicRemove.js` pointed at `opencv@4.10.0/build/wasm/opencv.js` — that npm version/package does not exist (404), so OpenCV never loaded. Also `s.crossOrigin='anonymous'` + resolving on `getBuildInformation` raced the async wasm init.
+- Fix A: switched to `@techstark/opencv-js@4.10.0-release.1/dist/opencv.js` (self-contained build, wasm embedded as base64, served by jsDelivr with `Access-Control-Allow-Origin: *` + `Cross-Origin-Resource-Policy: cross-origin` → COEP-safe). `loadOpenCV()` now polls until `cv.matFromImageData` exists before resolving (wasm runtime ready), with a 30s timeout.
+- Root cause B (api): `cv.inpaint` only accepts 1-/3-channel input, but `getImageData` is 4-channel RGBA → would throw even after OpenCV loaded.
+- Fix B: `inpaintLocal()` converts RGBA->BGR, runs inpaint, converts BGR->RGBA back. Error toasts now show the real message.
+- Also fixed: `vite.config.js` had TWO `server:` keys (proxy clobbered the COOP/COEP headers), so dev ran without `require-corp` — broke FFmpeg.wasm SharedArrayBuffer and masked the COEP issue. Merged into one `server` block (headers + proxy).
+
+## BUG FIXED (answer to user Q): BG removal earlier vs revised
+- The original Image Editor code used @imgly's DEFAULT publicPath (direct to staticimgly.com). staticimgly sends `Cross-Origin-Resource-Policy: cross-origin` but NO `Access-Control-Allow-Origin`, so under COEP `require-corp` the cross-origin `fetch` (CORS mode) is blocked. => would NOT have worked. The revised same-origin proxy (`/imgly-data/*`) is required and is the correct setup. (User confirmed BG works after the proxy change.)
+
+## CHANGED: Magic Remove now uses pure-JS inpainting (no OpenCV)
+- @techstark/opencv-js (jsDelivr) is a CORE-only build: `cv.inpaint` is NOT compiled in (grep: inpaint=0), and COLOR_* constants are absent too -> `cv.inpaint(..., cv.INPAINT_TELEA)` throws undefined -> magic remove failed even after the CDN URL was fixed. Official full builds with the photo module aren't reliably COEP-hosted, and self-building is impractical.
+- Fix: `src/editors/magicRemove.js` rewritten to pure-JS inpainting — no wasm/CDN/COEP dependency. For each masked pixel, averages the nearest known colors in 4 directions (distance-weighted, max 120px). Works everywhere, offline, instantly.
+- `imageEditor.js`: dropped `loadOpenCV` import; Remove button calls `inpaintLocal(imgData, maskCanvas)` directly. Error toasts show real message.
+
+## FIXED: Text tool (default text overlap + cancel) + emoji picker
+- Problem: default "Your text" was drawn to the canvas AND shown in the draggable overlay -> doubled/overlapped glyphs; Cancel didn't reliably clear it.
+- Fix (`openText` in `imageEditor.js`): default text is now empty (placeholder "Type something…"); ONLY the draggable overlay shows text while editing (canvas untouched), so nothing can overlap; Cancel does `editorCtx.drawImage(toolBaseCanvas,0,0)` + closeTool -> completely removes text; Apply draws the text to canvas once (guards against empty text with a toast).
+- Added emoji picker: "😀 Emoji" button toggles a grid of 38 emojis (`#t-emoji-picker`, `.emoji-btn` CSS added to `style.css`); clicking inserts at the cursor position in the text field.
+
+## Image Editor — test checklist (updated)
+- [ ] 4 tabs fit on 360/375px without overflow
+- [ ] Upload via picker / drop / paste
+- [ ] Each tool applies + Undo/Redo/Reset works
+- [ ] BG Remove live (model download ~40MB fast)
+- [ ] Magic Remove (pure JS) paints + removes without error
+- [ ] Text: no default text, no overlap, Cancel removes fully, emoji picker works
+- [ ] Download / Copy / Share on desktop + mobile
+- [ ] Commit, push, deploy to Vercel/Netlify
+
+## ROUND 3 FIXES (user feedback)
+- BG removal: code UNCHANGED since it last worked (publicPath proxy `/imgly-data/1.7.0/dist/` still in `bgRemove.js`). Re-verified: dev proxy returns resources.json HTTP 200 (22759 B) and COEP headers are present. => "Not working" + "no CSS first load then reload fixes" are the classic OLD cache-first service worker still controlling the browser from an earlier deploy. Fix: SW cache bumped to `fileforge-v3` (old caches auto-deleted on activate). USER ACTION: hard reload (or DevTools > Application > Service Workers > Unregister + clear site data) ONCE.
+- Magic Remove: was "messing up the entire image" because the directional-average fill blended far-away colors across large painted areas. Rewrote `inpaintLocal` to a SAFE composite fill: masked (painted) pixels take their color from a downscaled<=320px + extra-blurred copy of the image; ALL unmasked pixels are left byte-for-byte untouched. Only the painted region changes.
+- Emoji picker: `#t-emoji-picker { display:grid }` was overriding the `hidden` attribute (so ALL emojis always showed), and 8 fixed columns overflowed the box. Fixed: added `#t-emoji-picker[hidden]{display:none}` and changed grid to `repeat(auto-fill, minmax(2em,1fr))` + `max-width:100%` + square buttons, so the toggle works and emojis fit inside the container.
+- Verified: `npm run build` passes; dev sends COOP/COEP; `/imgly-data` proxy works. style.css is imported in main.js; production CSS is a real `<link>` in head.
+
+## ROUND 4 FIXES (final stability pass)
+- BG removal — SELF-HOSTED Fast model (bulletproof, no proxy dependency):
+  - Root cause of user "Failed to fetch": the `/imgly-data` proxy (vite/vercel/netlify) can only work if the deployed site actually has the rewrite AND no stale SW cache. Verified dev proxy serves every chunk with the exact expected size (ALL_OK: wasm 11.8MB, mjs 25KB, fast model 44.3MB), so code was correct but the deployed/stale environment is fragile.
+  - Fix: downloaded the Fast assets into `public/@imgly-data/1.7.0/` (resources.json + 15 chunks, 53.6MB, committed; folder deliberately NOT named `dist` because `.gitignore`'s `dist` rule would ignore it). `bgRemove.js` now uses `publicPath` by quality: fast → `/@imgly-data/1.7.0/` (same-origin static, works on dev/Vercel/Netlify/offline under COEP, no proxy needed); balanced/best → `/imgly-data/1.7.0/dist/` (proxy). Only the Fast path is guaranteed; Balanced/Best still stream via proxy.
+  - Verified: build passes; dist contains all 16 assets (53.6MB); dev serves `/@imgly-data/...` with HTTP 200.
+- Magic Remove — replaced blur-composite with ONION-PEEL DIFFUSION (`inpaintLocal` in `magicRemove.js`): each pass fills masked border pixels with the average of their known neighbours and marks them known, so the fill propagates inward from the mask edges (max 500 passes). Only painted pixels change; the fill is smooth and edge-aware (no more smudgy blur), works for any brush/mask size, no wasm/CDN/COEP dependency.
+- First-load CSS flash (FOUC) — `style.css` now loaded as a render-blocking `<link rel="stylesheet" href="/src/style.css">` in `index.html` head instead of via JS import in `main.js` (dev used JS-injected CSS → ~1s flash). Verified built HTML has the real CSS `<link>` in head.
+- Cleaned up temp files (test-bg.html, verify/download scripts).
+
+## ROUND 5 — FINAL: user requested light repo + revert BG to first-working (proxy) setup; Magic REMOVED
+- User confirmed: BG Remove must load models into the user's browser on first use (like the first build), with NO local/committed files, no git/Vercel limits, and reduced localStorage. Clarified: the "first version" WAS the proxy setup — staticimgly.com sends NO `Access-Control-Allow-Origin` (verified live), so direct cross-origin `fetch()` always fails; same-origin proxy is the only way it can ever work.
+- BG Remove: deleted `public/@imgly-data/` entirely (−53.6MB). `bgRemove.js` reverted to a single proxy-only `publicPath: '/imgly-data/1.7.0/dist/'` for fast/balanced/best. Models stream from IMG.LY CDN through our server into the user's browser on first use. Kept vite dev proxy + `vercel.json` rewrite + `netlify.toml` redirect (tiny config files).
+- Magic Remove: REMOVED entirely (per user — local non-AI inpainting can't do real content-aware removal). Deleted `magicRemove.js`; removed the 🧽 Magic toolbar button (index.html), `openMagic` + `inpaintLocal`/`inpaintCloud` imports (imageEditor.js), `.seg`/`.seg-btn`/`.mask-dot` CSS (style.css), and the `ff_magic_key`/`ff_magic_ep` localStorage writes (only localStorage the app used — now gone). Editor subtitle no longer mentions magic-erase. Toolbar = Filters, Text, Crop, Resize, Compress, BG Remove.
+- Verified: `npm run build` passes; full proxy check ALL_OK for wasm (11.8MB) + mjs + Fast isnet_quint8 (44.3MB) + Balanced isnet_fp16 (88MB); no `@imgly-data` refs remain in src; `dist` has no local model dir.
+
+## Image Editor — test checklist (final)
+- [ ] BG Remove (Fast) — proxy-only: models download to the browser on first use from IMG.LY CDN through `/imgly-data`; works after ONE hard reload (stale SW cleared)
+- [ ] No CSS flash on first load (style.css now render-blocking `<link>`)
+- [ ] Toolbar shows 6 tools (no Magic); each tool + Undo/Redo/Reset works
+- [ ] Download / Copy / Share on desktop + mobile
+- [ ] Commit + push; deploy to Vercel/Netlify (light repo, no model files)
+
+## ROOT CAUSE FOUND: "Failed to construct 'URL': Invalid base URL" (BG Remove)
+- Symptom: BG Remove toast showed "Failed to construct 'URL'".
+- Root cause: @imgly's `loadAsBlob` builds `new URL(resource, config.publicPath)`. The URL constructor REFUSES a RELATIVE string base — verified empirically in headless Edge: `new URL("resources.json", "/imgly-data/1.7.0/dist/")` throws "Invalid base URL" even on an http page (Chrome/Edge do NOT resolve a relative base string against the document). Our publicPath was the relative `/imgly-data/1.7.0/dist/`.
+- Fix (`src/editors/bgRemove.js`): pass an ABSOLUTE same-origin publicPath built from `location.origin`:
+  `publicPath = new URL('/imgly-data/1.7.0/dist/', location.origin).href` -> `http(s)://<host>/imgly-data/1.7.0/dist/`.
+- Verified END-TO-END in a real (headless Edge) browser against the dev server under COEP: resources.json -> 11 Fast-model chunks (44.3MB) -> wasm (11.8MB) -> mjs -> inference -> `SUCCESS size=1331 type=image/png`. `npm run build` passes and the built chunk contains the absolute-path builder.
+
+## FIXED: "First load = no tabs clickable; reload fixes it"
+- Root cause: service worker cached `/` and `/index.html` at INSTALL time and served them as the navigation fallback. After a deploy, a first-load navigation fetch failure/race could serve the stale cached index.html, which referenced old hashed JS bundles that no longer exist on the server -> `main.js` failed -> tabs dead until a reload fetched fresh HTML. Same bug family as the earlier stale-CSS / stale-tabs issues.
+- Fix (`public/sw.js` -> v4): network-only passthrough. No install-time caching, no cache fallback, all old caches deleted on activate. Every load is always fresh; first load always works. The fetch handler stays so the PWA remains installable. Offline app-shell is intentionally dropped (app's real features need network anyway — FFmpeg + bg models come from CDNs).

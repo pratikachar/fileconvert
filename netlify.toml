@@ -7,3 +7,9 @@
   [headers.values]
     Cross-Origin-Embedder-Policy = "require-corp"
     Cross-Origin-Opener-Policy = "same-origin"
+
+[[redirects]]
+  from = "/imgly-data/*"
+  to = "https://staticimgly.com/@imgly/background-removal-data/:splat"
+  status = 200
+  force = true
