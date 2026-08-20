@@ -156,3 +156,23 @@
 ## FIXED: "First load = no tabs clickable; reload fixes it"
 - Root cause: service worker cached `/` and `/index.html` at INSTALL time and served them as the navigation fallback. After a deploy, a first-load navigation fetch failure/race could serve the stale cached index.html, which referenced old hashed JS bundles that no longer exist on the server -> `main.js` failed -> tabs dead until a reload fetched fresh HTML. Same bug family as the earlier stale-CSS / stale-tabs issues.
 - Fix (`public/sw.js` -> v4): network-only passthrough. No install-time caching, no cache fallback, all old caches deleted on activate. Every load is always fresh; first load always works. The fetch handler stays so the PWA remains installable. Offline app-shell is intentionally dropped (app's real features need network anyway — FFmpeg + bg models come from CDNs).
+
+## AI CLEANER (5th tab) — NEW FEATURE
+- Added "AI Cleaner" tab (`tab-btn-ai`, 🧹 / "Clean") — checks and strips AI signatures (C2PA/Content Credentials, XMP, EXIF, PNG generation tags) 100% client-side. Batch + ZIP supported, clear limits shown in the UI.
+- New module `src/metadataRemover.js` (self-contained, no DOM at import — pure logic is Node-testable):
+  - PNG: byte-level chunk parser (8-byte sig + len/type/data/crc), CRC32 rebuild, selective chunk drop (c2pa iTXt, XMP iTXt, AI text tags like `parameters`, eXIf, unknown ancillary), keeps IHDR/PLTE/IDAT/tRNS/gAMA/sRGB/APNG(acTL/fcTL/fdAT) so pixels render identically.
+  - JPEG: marker/segment parser that STOPS at SOS and copies the entropy-coded tail VERBATIM (safe for any scan data / progressive files). Drops APP1 by kind (JUMBF/C2PA, XMP, Exif), APP2 ICC, APP13 IPTC, COM per options; keeps JFIF/Adobe/SOF/DHT/DQT.
+  - WebP: RIFF chunk strip (EXIF/XMP/ICCP/C2PA/META) + VP8X feature-flag bits cleared to match; keeps VP8/VP8L/ALPH/ANIM/ANMF.
+  - EXIF: custom minimal TIFF/IFD0 reader (Make 0x010F, Model 0x0110, Software 0x0131, DateTime 0x0132/0x9003, GPS IFD presence) — no dependency (exif-reader needs Node Buffer, not browser-compatible; dropped it and unused pngjs).
+  - Camera-data injection ("make it look real"): JPEG builds a real Exif APP1 (TIFF IFD0 with Make/Model/Software/DateTime/Orientation) and replaces any existing Exif APP1; PNG appends Software + CreateDate tEXt chunks.
+  - Modes: AI-only (default: strip C2PA/XMP/AI PNG tags, keep camera EXIF + ICC) vs Remove-all (strip everything, ICC per toggle) + per-section toggles.
+  - Batch: multi-file drop/click/paste or ZIP upload (jszip). Limits displayed: PNG·JPEG·WebP, ≤50 MB/file, ≤20 files/batch, ZIP accepted. Results ZIP-downloaded (or single file); per-file report rows with thumbnails, badges (C2PA/XMP/EXIF/ICC/IPTC/PNG tags/AI), verdict (⚠ N AI markers / ✓ No metadata), details expander, remove-per-item, per-item error handling.
+  - Disclaimer note in UI: removes metadata only; pixel watermarks (SynthID) and visual detectors unaffected.
+- Wired in `src/main.js` (import + `setupAIMetadataRemover()` in init; paste-upload routes to the AI tab when active). Styles added to `src/style.css` (report cards, badges, seg-mode buttons, camera fields, toggles, responsive @600px stacking). No new runtime deps added (pngjs/exif-reader installed then removed as unnecessary).
+- Verified: `npm run build` passes; 26 Node unit checks (scan/strip/inject for PNG/JPEG/WebP incl. verbatim JPEG tail preservation and VP8X flag clearing) ALL PASS; headless-Edge CDP E2E (22 checks: tab wiring, upload, scan UI, AI badges, clean flow, blob capture confirms stripped output) ALL PASS; ZIP input expansion + batch strip verified in Node.
+- Cleanup: test harnesses (`.ai-test-tmp`, `public/test-ai-cleaner.html`, temp dumps) removed.
+
+## Next Steps
+- [ ] Live test on deployed Vercel/Netlify + mobile (360/375px) — tab bar now has 5 items (Convert/Icon/QR/Edit/Clean)
+- [ ] Try a real AI-generated image (e.g. Stable Diffusion PNG with `parameters` chunk) through the AI Cleaner end-to-end
+- [ ] Commit + push

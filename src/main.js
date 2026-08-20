@@ -17,6 +17,7 @@ import { convertDocument } from './converters/document.js';
 import { renderIconCanvas, buildIconPackage } from './generators/iconGenerator.js';
 import { renderQRCanvas, renderQRSVG } from './generators/qrGenerator.js';
 import { setupImageEditor } from './editors/imageEditor.js';
+import { setupAIMetadataRemover } from './metadataRemover.js';
 
 // Helper DOM selector
 const $ = (sel) => document.querySelector(sel);
@@ -813,6 +814,7 @@ function init() {
   setupIconGenerator();
   setupQRGenerator();
   setupImageEditor();
+  setupAIMetadataRemover();
   setupPasteUpload();
   registerServiceWorker();
 }
@@ -824,10 +826,13 @@ function setupPasteUpload() {
     const file = files[0];
     const converterActive = !document.getElementById('tab-content-converter').classList.contains('hidden');
     const iconActive = !document.getElementById('tab-content-icon').classList.contains('hidden');
+    const aiActive = !document.getElementById('tab-content-ai').classList.contains('hidden');
     if (converterActive && !currentFile) {
       handleFile(file);
     } else if (iconActive && !iconSourceImg) {
       loadIconSourceImage(file);
+    } else if (aiActive) {
+      window.__aiAddFiles && window.__aiAddFiles(Array.from(files));
     }
   });
 }

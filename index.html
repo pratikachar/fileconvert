@@ -90,6 +90,11 @@
             <span class="tab-label-full">Image Editor</span>
             <span class="tab-label-short">Edit</span>
           </button>
+          <button class="nav-tab" id="tab-btn-ai" data-tab="ai" role="tab" aria-selected="false">
+            <span class="tab-icon">🧹</span>
+            <span class="tab-label-full">AI Cleaner</span>
+            <span class="tab-label-short">Clean</span>
+          </button>
         </nav>
       </header>
 
@@ -768,6 +773,93 @@
             </div>
           </div>
         </section>
+      </div>
+
+      <!-- TAB 5: AI CLEANER (metadata remover) -->
+      <div id="tab-content-ai" class="tab-content hidden">
+        <section class="hero">
+          <h1 class="hero-title">
+            AI <span class="gradient-text">Metadata Remover</span>
+          </h1>
+          <p class="hero-subtitle">
+            Check and remove AI signatures (C2PA, XMP, EXIF, PNG generation tags) from your images — 100% in your browser.
+          </p>
+        </section>
+
+        <main class="tool-section">
+          <!-- Upload Zone -->
+          <div id="ai-upload-zone" class="upload-zone">
+            <div class="upload-zone-content">
+              <div class="upload-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+              </div>
+              <p class="upload-text">Drop images here to check &amp; clean</p>
+              <p class="upload-subtext">or click to browse · paste (Ctrl+V)</p>
+              <div class="upload-formats">PNG · JPEG · WebP — up to 50 MB each · batch up to 20 files · ZIP accepted</div>
+            </div>
+            <input type="file" id="ai-file-input" class="file-input" multiple accept="image/png,image/jpeg,image/webp,.zip" />
+          </div>
+
+          <!-- Report Panel -->
+          <div id="ai-panel" class="editor-panel hidden">
+            <div class="controls-card">
+              <h3 class="controls-title">📋 Metadata Report</h3>
+              <div id="ai-file-list" class="ai-file-list"></div>
+            </div>
+
+            <div class="controls-card">
+              <h3 class="controls-title">⚙️ Cleaning Options</h3>
+              <div class="control-group">
+                <label class="control-label">Mode</label>
+                <div class="seg-row">
+                  <button class="seg-btn active" data-mode="ai">🎯 AI-only (keep camera data)</button>
+                  <button class="seg-btn" data-mode="all">🗑️ Remove all</button>
+                </div>
+              </div>
+
+              <div class="ai-toggles">
+                <label class="checkbox-label"><input type="checkbox" id="ai-strip-c2pa" checked /> <span>Strip C2PA / Content Credentials</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="ai-strip-xmp" checked /> <span>Strip XMP (prompts, seeds, software)</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="ai-strip-exif" checked /> <span>Strip EXIF (camera, timestamps, GPS)</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="ai-strip-png" checked /> <span>Strip PNG text chunks (parameters, Software)</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="ai-keep-icc" checked /> <span>Keep ICC color profile</span></label>
+              </div>
+
+              <div class="ai-real-row">
+                <label class="checkbox-label"><input type="checkbox" id="ai-add-camera" /> <span>Add camera metadata to look real</span></label>
+                <div id="ai-camera-fields" class="ai-camera-fields hidden">
+                  <div class="ai-field">
+                    <label for="ai-make" class="sub-label">Make</label>
+                    <input type="text" id="ai-make" class="form-input" value="Sony" />
+                  </div>
+                  <div class="ai-field">
+                    <label for="ai-model" class="sub-label">Model</label>
+                    <input type="text" id="ai-model" class="form-input" value="ILCE-7M4" />
+                  </div>
+                  <div class="ai-field">
+                    <label for="ai-software" class="sub-label">Software</label>
+                    <input type="text" id="ai-software" class="form-input" value="Adobe Photoshop 25.0 (Windows)" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="editor-actions">
+                <button id="ai-clean" class="btn-primary">🧹 Clean Selected</button>
+                <button id="ai-clear" class="btn-secondary">Clear All</button>
+              </div>
+              <div id="ai-progress" class="progress-section hidden">
+                <div class="progress-bar-track"><div id="ai-progress-bar" class="progress-bar-fill" style="width:0%"></div></div>
+                <p id="ai-progress-text" class="progress-text">Processing…</p>
+              </div>
+              <div id="ai-result" class="ai-result hidden"></div>
+              <p class="field-hint" style="margin-top:12px">Removes metadata only. Pixel-level watermarks (e.g. SynthID) and visual AI-detectors are not affected.</p>
+            </div>
+          </div>
+        </main>
       </div>
 
       <!-- Footer -->
