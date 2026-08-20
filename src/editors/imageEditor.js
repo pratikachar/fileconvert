@@ -2,6 +2,8 @@
 // All processing is client-side. Heavy ML libs are loaded on demand.
 
 import { removeBackground } from './bgRemove.js';
+import { upscaleCanvas, UPSCALE_TIERS, UPSCALE_SCALES, estimateOutput, isHeavyScale, INPUT_CAP, ADV_INPUT_CAP } from './aiUpscale.js';
+import { resizeLanczos } from './resample.js';
 
 const EDITOR_MAX_DIM = 2400;
 const HISTORY_LIMIT = 25;
@@ -189,7 +191,7 @@ function openTool(tool) {
   toolBaseCanvas.getContext('2d').drawImage(editorCanvas, 0, 0);
   activeTool = tool;
   clearOverlay();
-  ({ filters: openFilters, text: openText, crop: openCrop, resize: openResize, compress: openCompress, bg: openBg }[tool] || closeTool)();
+  ({ filters: openFilters, text: openText, crop: openCrop, resize: openResize, compress: openCompress, bg: openBg, aiupscale: openAiUpscale }[tool] || closeTool)();
 }
 
 // ---------- Filters / Adjust ----------
@@ -397,37 +399,85 @@ function openCrop() {
 }
 
 // ---------- Resize ----------
+const RESIZE_METHODS = [
+  { id: 'auto', label: 'Auto (recommended)', desc: 'Smooth bicubic — best all-round, instant.' },
+  { id: 'crisp', label: 'Crisp (Lanczos-3)', desc: 'Sharpest detail for up & downscale — slower on big images.' },
+  { id: 'pixel', label: 'Pixel-art (nearest)', desc: 'Hard pixels, no smoothing — for sprites & pixel art.' },
+];
+
 function openResize() {
-  const lock = true;
   const w0 = editorCanvas.width, h0 = editorCanvas.height;
+  const methodCards = RESIZE_METHODS.map((m, i) => `
+    <label class="choice-card">
+      <input type="radio" name="r-method" value="${m.id}" ${i === 0 ? 'checked' : ''}>
+      <span class="choice-body">
+        <span class="choice-title">${m.label}</span>
+        <span class="choice-desc">${m.desc}</span>
+      </span>
+    </label>`).join('');
   controlsEl.innerHTML = `
     <h3 class="controls-title">📐 Resize</h3>
+    <label class="control-label">Method</label>
+    ${methodCards}
+    <div class="resize-presets">
+      ${[0.5, 1, 2, 4].map((f) => `<button type="button" class="preset-chip" data-f="${f}">${f}×</button>`).join('')}
+    </div>
     <label class="control-label">Width (px)</label>
     <input type="number" id="r-w" class="form-input" value="${w0}">
     <label class="control-label">Height (px)</label>
     <input type="number" id="r-h" class="form-input" value="${h0}">
-    <label class="control-inline"><input type="checkbox" id="r-lock" ${lock ? 'checked' : ''}> Keep aspect ratio</label>
+    <label class="control-inline"><input type="checkbox" id="r-lock" checked> Keep aspect ratio</label>
+    <p class="editor-hint" id="r-readout"></p>
+    <p class="editor-hint">Want real detail? Try <strong>✨ AI Upscale</strong> instead.</p>
     <div class="editor-actions">
       <button class="btn-secondary" data-act="cancel">Cancel</button>
       <button class="btn-primary" data-act="apply">Apply</button>
     </div>`;
-  const wIn = $('r-w'), hIn = $('r-h'), lockIn = $('r-lock');
-  wIn.addEventListener('input', () => {
-    if (lockIn.checked) hIn.value = Math.round((+wIn.value / w0) * h0);
-  });
-  hIn.addEventListener('input', () => {
-    if (lockIn.checked) wIn.value = Math.round((+hIn.value / h0) * w0);
-  });
-  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => closeTool());
-  controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => {
+  const wIn = $('r-w'), hIn = $('r-h'), lockIn = $('r-lock'), readout = $('r-readout');
+  const readoutFmt = () => {
     const w = Math.max(1, +wIn.value || w0), h = Math.max(1, +hIn.value || h0);
-    const out = document.createElement('canvas');
-    out.width = w; out.height = h;
-    out.getContext('2d').drawImage(editorCanvas, 0, 0, w, h);
-    editorCanvas.width = w; editorCanvas.height = h;
-    editorCtx.drawImage(out, 0, 0);
+    const mp = ((w * h) / 1e6).toFixed(1);
+    readout.textContent = `${w} × ${h} px · ${mp} MP` + (w * h > 40e6 ? ' — ⚠ over 40 MP' : '');
+  };
+  wIn.addEventListener('input', () => { if (lockIn.checked) hIn.value = Math.round((+wIn.value / w0) * h0); readoutFmt(); });
+  hIn.addEventListener('input', () => { if (lockIn.checked) wIn.value = Math.round((+hIn.value / h0) * w0); readoutFmt(); });
+  controlsEl.querySelectorAll('.preset-chip').forEach((b) => b.addEventListener('click', () => {
+    const f = +b.dataset.f;
+    wIn.value = Math.round(w0 * f);
+    hIn.value = Math.round(h0 * f);
+    readoutFmt();
+  }));
+  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => closeTool());
+  controlsEl.querySelector('[data-act=apply]').addEventListener('click', async () => {
+    const method = controlsEl.querySelector('input[name=r-method]:checked').value;
+    const w = Math.max(1, +wIn.value || w0), h = Math.max(1, +hIn.value || h0);
+    if (method === 'crisp') {
+      setLoading(true, 'Resizing (Lanczos-3)…');
+      try {
+        const base = toolBaseCanvas.getContext('2d');
+        const src = base.getImageData(0, 0, toolBaseCanvas.width, toolBaseCanvas.height).data;
+        const dst = resizeLanczos(src, toolBaseCanvas.width, toolBaseCanvas.height, w, h, (pct) => setLoading(true, `Resizing (Lanczos-3)… ${pct}%`));
+        const out = document.createElement('canvas');
+        out.width = w; out.height = h;
+        out.getContext('2d').putImageData(new ImageData(dst, w, h), 0, 0);
+        editorCanvas.width = w; editorCanvas.height = h;
+        editorCtx.drawImage(out, 0, 0);
+      } finally { setLoading(false); }
+    } else {
+      editorCanvas.width = w; editorCanvas.height = h;
+      if (method === 'pixel') {
+        editorCtx.imageSmoothingEnabled = false;
+        editorCtx.imageSmoothingQuality = 'low';
+      } else {
+        editorCtx.imageSmoothingEnabled = true;
+        editorCtx.imageSmoothingQuality = 'high';
+      }
+      editorCtx.drawImage(toolBaseCanvas, 0, 0, w, h);
+    }
     pushHistory(); closeTool();
+    toast(`Resized to ${w} × ${h}`);
   });
+  readoutFmt();
 }
 
 // ---------- Compress ----------
@@ -517,6 +567,105 @@ function openBg() {
       setLoading(false);
     }
   });
+}
+
+// ---------- AI Upscale ----------
+const AIUPSCALE_REMEMBER_KEY = 'fileforge-aiupscale-remember';
+
+function openAiUpscale() {
+  const remember = localStorage.getItem(AIUPSCALE_REMEMBER_KEY) === '1';
+  const modelCards = Object.entries(UPSCALE_TIERS).map(([id, m], i) => `
+    <label class="choice-card">
+      <input type="radio" name="au-model" value="${id}" ${i === 0 ? 'checked' : ''}>
+      <span class="choice-body">
+        <span class="choice-title">${m.label} <span class="choice-tag">${m.sizeMB} MB</span></span>
+        <span class="choice-desc">${m.bestFor} · ~${m.time}</span>
+      </span>
+    </label>`).join('');
+  const scaleChips = UPSCALE_SCALES.map((s, i) => `
+    <button type="button" class="preset-chip scale-chip${i === 1 ? ' active' : ''}" data-scale="${s.value}">${s.label}<span class="chip-note">${s.note}</span></button>`).join('');
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">✨ AI Upscale</h3>
+    <p class="info-banner">Models stream to your browser on first use and are cached — nothing is uploaded to any server.</p>
+    <label class="control-label">Model</label>
+    ${modelCards}
+    <label class="control-label">Scale</label>
+    <div class="resize-presets scale-row">${scaleChips}</div>
+    <details class="au-advanced">
+      <summary>Advanced</summary>
+      <label class="control-inline"><input type="checkbox" id="au-large"> Allow 2048px input (much slower, heavy on memory)</label>
+    </details>
+    <p class="editor-hint" id="au-readout"></p>
+    <div class="au-warn hidden" id="au-warn"></div>
+    <label class="control-inline"><input type="checkbox" id="au-remember" ${remember ? 'checked' : ''}> Remember my choice (skip warnings)</label>
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="cancel">Cancel</button>
+      <button class="btn-primary" id="au-go">Upscale</button>
+    </div>
+    <p class="license-note">Models: Real-ESRGAN (BSD-3-Clause) &amp; anime (MIT) — credit <a href="https://github.com/xinntao/Real-ESRGAN" target="_blank" rel="noopener">Xinntao</a>.</p>`;
+  const modelSel = () => controlsEl.querySelector('input[name=au-model]:checked').value;
+  const scaleSel = () => +controlsEl.querySelector('.scale-chip.active').dataset.scale;
+  const capSel = () => ($('au-large') && $('au-large').checked ? ADV_INPUT_CAP : INPUT_CAP);
+  const update = () => {
+    const model = modelSel();
+    const scale = scaleSel();
+    const est = estimateOutput(editorCanvas.width, editorCanvas.height, scale, capSel());
+    const outMp = ((est.outW * est.outH) / 1e6).toFixed(1);
+    $('au-readout').textContent = `Output ≈ ${est.outW} × ${est.outH} px · ${outMp} MP (input capped at ${Math.min(Math.max(editorCanvas.width, editorCanvas.height), capSel())}px)`;
+    const warn = [];
+    const m = UPSCALE_TIERS[model];
+    if (m.heavy) warn.push(`<strong>${m.label}</strong>: first use streams <strong>${m.sizeMB} MB</strong> to your browser (${m.time}) and processing can take several minutes — results may be sharper than lighter models.`);
+    if (isHeavyScale(scale)) warn.push(`<strong>${scale}×</strong>: runs the AI twice — double processing time. The result is <em>larger</em>, not 8× more real detail, and may fail on phones (use 4× if it does).`);
+    const wEl = $('au-warn');
+    if (warn.length) {
+      wEl.innerHTML = '⚠ ' + warn.join('<br>⚠ ') + (remember ? '' : `<label class="control-inline au-accept"><input type="checkbox" id="au-accept"> I understand the download/time trade-off</label>`);
+      wEl.classList.remove('hidden');
+    } else {
+      wEl.classList.add('hidden');
+      wEl.innerHTML = '';
+    }
+  };
+  controlsEl.querySelectorAll('.scale-chip').forEach((c) => c.addEventListener('click', () => {
+    controlsEl.querySelectorAll('.scale-chip').forEach((x) => x.classList.remove('active'));
+    c.classList.add('active');
+    update();
+  }));
+  controlsEl.querySelectorAll('input[name=au-model]').forEach((r) => r.addEventListener('change', update));
+  $('au-large').addEventListener('change', update);
+  $('au-remember').addEventListener('change', update);
+  $('au-go').addEventListener('click', async () => {
+    localStorage.setItem(AIUPSCALE_REMEMBER_KEY, $('au-remember').checked ? '1' : '0');
+    const warn = $('au-warn');
+    if (!warn.classList.contains('hidden') && !$('au-remember').checked && !$('au-accept').checked) {
+      toast('Please tick "I understand" to continue');
+      return;
+    }
+    const model = modelSel();
+    const scale = scaleSel();
+    setLoading(true, 'Starting…');
+    try {
+      const out = await upscaleCanvas(editorCanvas, {
+        tier: model,
+        scale,
+        cap: capSel(),
+        onStatus: (t) => setLoading(true, t),
+        onProgress: () => {},
+      });
+      editorCanvas.width = out.width;
+      editorCanvas.height = out.height;
+      editorCtx.drawImage(out, 0, 0);
+      pushHistory();
+      closeTool();
+      toast(`AI upscaled ${scale}× → ${out.width} × ${out.height}`);
+    } catch (err) {
+      toast('AI upscale failed: ' + (err && err.message ? err.message : err));
+      console.error('AI upscale failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  });
+  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => closeTool());
+  update();
 }
 
 // ---------- Export ----------

@@ -2134,3 +2134,126 @@ body {
   }
 }
 
+/* ---------- Resize / AI Upscale (choice cards, warnings, presets) ---------- */
+.choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  margin: 6px 0;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.choice-card:hover {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.06);
+}
+.choice-card input[type='radio'] {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.choice-card:has(input[type='radio']:checked) {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+}
+.choice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.choice-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.choice-tag {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.14);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.choice-desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.resize-presets {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 12px;
+  flex-wrap: wrap;
+}
+.preset-chip {
+  flex: 1;
+  min-width: 52px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 600;
+}
+.preset-chip:hover {
+  border-color: var(--accent);
+}
+.preset-chip.active {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.14);
+}
+.scale-row .preset-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+}
+.chip-note {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.info-banner {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  line-height: 1.5;
+}
+
+.au-warn {
+  font-size: 0.82rem;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 8px 0;
+  line-height: 1.6;
+}
+.au-accept {
+  margin-top: 10px;
+  color: var(--text-primary);
+}
+.au-advanced {
+  font-size: 0.82rem;
+  margin: 6px 0;
+  color: var(--text-muted);
+}
+.au-advanced summary {
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+

@@ -18,6 +18,18 @@
     {
       "source": "/imgly-data/(.*)",
       "destination": "https://staticimgly.com/@imgly/background-removal-data/$1"
+    },
+    {
+      "source": "/esrgan-data/(.*)",
+      "destination": "https://huggingface.co/$1"
+    },
+    {
+      "source": "/jsd-data/(.*)",
+      "destination": "https://cdn.jsdelivr.net/$1"
+    },
+    {
+      "source": "/ghraw-data/(.*)",
+      "destination": "https://raw.githubusercontent.com/$1"
     }
   ]
 }

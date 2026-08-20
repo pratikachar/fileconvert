@@ -176,3 +176,22 @@
 - [ ] Live test on deployed Vercel/Netlify + mobile (360/375px) — tab bar now has 5 items (Convert/Icon/QR/Edit/Clean)
 - [ ] Try a real AI-generated image (e.g. Stable Diffusion PNG with `parameters` chunk) through the AI Cleaner end-to-end
 - [ ] Commit + push
+
+## AI UPSCALE + NEW RESIZE (Image Editor 7th tool)
+- New toolbar button ✨ **AI Upscale** (`data-tool="aiupscale"`, index.html) + `openAiUpscale()` in imageEditor.js. `openResize()` rewritten as a method-card UI.
+- **Resize tool** now offers methods: **Auto** (bilinear, recommended), **Crisp** (Lanczos-3 via new `src/editors/resample.js` — pure JS banded resampler, `resizeLanczos`), **Pixel-art** (nearest). Preset chips 0.5×/1×/2×/4×, live W×H/MP readout, >40MP warning, aspect lock, "Try ✨ AI Upscale" hint. Limits: editor input capped at 2400px; plain resize up to 4× (and 0.5× down).
+- **AI Upscale** = tiled Real-ESRGAN via `onnxruntime-web/wasm` (CPU-only, lazy chunk `ort.wasm.bundle.min` ~46KB). Engine in `src/editors/aiUpscale.js` (`UPSCALE_TIERS` table is the single place URLs live).
+  - **4 tiers**: Fast (RealESR-AnimeVideo-v3_x4, 2.4MB, default), Balanced (realesr-general-x4v3, 4.9MB), Anime (RealESRGAN_x4plus_anime_6B, 17.9MB), Best (real_esrgan_x4, 64MB).
+  - **Scales**: 2× / 4× / 8× (8× = double 4× pass, honestly warned). Input capped 1024px (2048px with "Advanced" toggle); output hard-capped 8192px; 512px tiles with 16px pad + seam averaging; alpha composited over white; multi-pass for 2×/8×.
+  - **Dual-source model fetch** (per-tier fallback list): fast/balanced primary via jsDelivr mirror `/jsd-data/gh/…` (byte-exact verified 2,495,473 / 4,871,181); best primary HF `/esrgan-data/…` + fallback `/ghraw-data/soichi11208/Real-ESRGAN-WASM/…` (69,464,831 B verified); anime HF-only (no mirror exists). HuggingFace is anti-bot/flaky from datacenter IPs → mirrors added for robustness; tiny same-origin proxy configs only (no repo bloat, models stream to user browser + browser-cache on first use).
+  - **Proxies**: vite `server.proxy` + `vercel.json` rewrites + `netlify.toml` redirects for `/esrgan-data` (HF), `/jsd-data` (cdn.jsdelivr.net), `/ghraw-data` (raw.githubusercontent.com).
+  - **ORT wasm**: `scripts/copy-ort-wasm.mjs` (runs on dev/build) copies `ort-wasm-simd-threaded.{mjs,wasm}` (+ jsep) from node_modules to `public/ort/` (gitignored). `.mjs` wrappers are REQUIRED — ort dynamically imports them; wasm configured via `ort.env.wasm.wasmPaths = '/ort/'`, threads = min(4, hardwareConcurrency).
+  - **Vite dev quirk fixed**: ort's `import('/ort/ort-wasm-simd-threaded.mjs?import')` returns 500 because Vite refuses to transform `/public` files. Added a small `configureServer` middleware plugin that strips the `?import` query for `/ort/` requests. Static hosts ignore the query in prod, so no prod changes needed.
+- **Warnings**: heavy model (anime/best: size+time) and/or 8× show an `#au-warn` panel; "I understand" checkbox gates "Upscale" unless "Remember my choice" is checked (localStorage `fileforge-aiupscale-remember`). License footer (Real-ESRGAN BSD-3 / anime MIT, credit Xinntao).
+- **Verification (all pass)**: 39 Node logic tests (Lanczos kernel exact, identity, dims/mean, tier table, same-origin URLs, caps/clamps); `npm run build` green; headless-Edge CDP E2E **11/11**: COOP/COEP isolated, upload, Resize Crisp 2× (64→128, sane pixels), Best 4× (69MB real download via ghraw fallback + real inference → 512×512, mean red 121 sane), Fast 4× (→2048×2048), Best+8× warning visible & mentions 8×/MB, go blocked without "I understand" + instructing toast, zero console errors.
+- **Scale limits (user Q)**: downscale 0.5× (Resize); upscale 4× plain (Lanczos) or 2×/4×/8× AI; AI input capped 1024px (2048 advanced), output ≤8192px.
+
+## Next Steps (AI Upscale)
+- [ ] Deploy + live-test on Vercel/Netlify: first Fast use streams 2.4MB; Best 64MB is the slow one (mirror fallback covers HF flakiness)
+- [ ] Confirm jsDelivr mirrors serve correctly from the deployed site (CORS is open on jsDelivr/raw GitHub)
+- [ ] Optional: prefetch/prime Fast model when user opens the tool for snappier first run

@@ -13,3 +13,21 @@
   to = "https://staticimgly.com/@imgly/background-removal-data/:splat"
   status = 200
   force = true
+
+[[redirects]]
+  from = "/esrgan-data/*"
+  to = "https://huggingface.co/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/jsd-data/*"
+  to = "https://cdn.jsdelivr.net/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/ghraw-data/*"
+  to = "https://raw.githubusercontent.com/:splat"
+  status = 200
+  force = true
