@@ -1,5 +1,5 @@
 /**
- * FileForge — Main Application Script
+ * FileForge - Main Application Script
  * Orchestrates File Conversion, Icon Generator, and QR Code Generator
  */
 

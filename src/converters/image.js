@@ -1,5 +1,5 @@
 /**
- * Image Converter — Uses HTML5 Canvas API
+ * Image Converter - Uses HTML5 Canvas API
  * Supports: PNG, JPG, WebP, BMP, GIF, SVG, ICO, TIFF → PNG, JPG, WebP, BMP
  */
 

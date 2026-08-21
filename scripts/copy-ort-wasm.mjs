@@ -2,7 +2,7 @@
 // public/ort/ so the browser loads them same-origin (COEP require-corp).
 // The .mjs wrappers are required too: ort's bundled code dynamically imports
 // them (e.g. `import('/ort/ort-wasm-simd-threaded.mjs')`), and that import
-// instantiates the .wasm. public/ort is gitignored — files are generated from
+// instantiates the .wasm. public/ort is gitignored - files are generated from
 // node_modules at dev/build time, keeping the repo light.
 import { copyFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';

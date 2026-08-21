@@ -1,5 +1,5 @@
 /**
- * Media Converter — Uses FFmpeg.wasm for audio & video conversion
+ * Media Converter - Uses FFmpeg.wasm for audio & video conversion
  * Audio: MP3, WAV, OGG, AAC, FLAC, M4A, WMA
  * Video: MP4, WebM, AVI, MKV, MOV, FLV
  */

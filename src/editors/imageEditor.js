@@ -1,4 +1,4 @@
-// Image Editor — orchestrates canvas, tools, history and export.
+// Image Editor - orchestrates canvas, tools, history and export.
 // All processing is client-side. Heavy ML libs are loaded on demand.
 
 import { removeBackground } from './bgRemove.js';
@@ -400,9 +400,9 @@ function openCrop() {
 
 // ---------- Resize ----------
 const RESIZE_METHODS = [
-  { id: 'auto', label: 'Auto (recommended)', desc: 'Smooth bicubic — best all-round, instant.' },
-  { id: 'crisp', label: 'Crisp (Lanczos-3)', desc: 'Sharpest detail for up & downscale — slower on big images.' },
-  { id: 'pixel', label: 'Pixel-art (nearest)', desc: 'Hard pixels, no smoothing — for sprites & pixel art.' },
+  { id: 'auto', label: 'Auto (recommended)', desc: 'Smooth bicubic - best all-round, instant.' },
+  { id: 'crisp', label: 'Crisp (Lanczos-3)', desc: 'Sharpest detail for up & downscale - slower on big images.' },
+  { id: 'pixel', label: 'Pixel-art (nearest)', desc: 'Hard pixels, no smoothing - for sprites & pixel art.' },
 ];
 
 function openResize() {
@@ -437,7 +437,7 @@ function openResize() {
   const readoutFmt = () => {
     const w = Math.max(1, +wIn.value || w0), h = Math.max(1, +hIn.value || h0);
     const mp = ((w * h) / 1e6).toFixed(1);
-    readout.textContent = `${w} × ${h} px · ${mp} MP` + (w * h > 40e6 ? ' — ⚠ over 40 MP' : '');
+    readout.textContent = `${w} × ${h} px · ${mp} MP` + (w * h > 40e6 ? ' - ⚠ over 40 MP' : '');
   };
   wIn.addEventListener('input', () => { if (lockIn.checked) hIn.value = Math.round((+wIn.value / w0) * h0); readoutFmt(); });
   hIn.addEventListener('input', () => { if (lockIn.checked) wIn.value = Math.round((+hIn.value / h0) * w0); readoutFmt(); });
@@ -528,7 +528,7 @@ function openBg() {
     <h3 class="controls-title">🪄 Background Removal</h3>
     <label class="control-label">Model</label>
     <select id="bg-model" class="form-select">
-      <option value="fast" selected>Fast (~40 MB) — free</option>
+      <option value="fast" selected>Fast (~40 MB) - free</option>
       <option value="balanced">Balanced (~80 MB)</option>
       <option value="best">Best (~160 MB)</option>
     </select>
@@ -586,7 +586,7 @@ function openAiUpscale() {
     <button type="button" class="preset-chip scale-chip${i === 1 ? ' active' : ''}" data-scale="${s.value}">${s.label}<span class="chip-note">${s.note}</span></button>`).join('');
   controlsEl.innerHTML = `
     <h3 class="controls-title">✨ AI Upscale</h3>
-    <p class="info-banner">Models stream to your browser on first use and are cached — nothing is uploaded to any server.</p>
+    <p class="info-banner">Models stream to your browser on first use and are cached - nothing is uploaded to any server.</p>
     <label class="control-label">Model</label>
     ${modelCards}
     <label class="control-label">Scale</label>
@@ -602,7 +602,7 @@ function openAiUpscale() {
       <button class="btn-secondary" data-act="cancel">Cancel</button>
       <button class="btn-primary" id="au-go">Upscale</button>
     </div>
-    <p class="license-note">Models: Real-ESRGAN (BSD-3-Clause) &amp; anime (MIT) — credit <a href="https://github.com/xinntao/Real-ESRGAN" target="_blank" rel="noopener">Xinntao</a>.</p>`;
+    <p class="license-note">Models: Real-ESRGAN (BSD-3-Clause) &amp; anime (MIT) - credit <a href="https://github.com/xinntao/Real-ESRGAN" target="_blank" rel="noopener">Xinntao</a>.</p>`;
   const modelSel = () => controlsEl.querySelector('input[name=au-model]:checked').value;
   const scaleSel = () => +controlsEl.querySelector('.scale-chip.active').dataset.scale;
   const capSel = () => ($('au-large') && $('au-large').checked ? ADV_INPUT_CAP : INPUT_CAP);
@@ -614,8 +614,8 @@ function openAiUpscale() {
     $('au-readout').textContent = `Output ≈ ${est.outW} × ${est.outH} px · ${outMp} MP (input capped at ${Math.min(Math.max(editorCanvas.width, editorCanvas.height), capSel())}px)`;
     const warn = [];
     const m = UPSCALE_TIERS[model];
-    if (m.heavy) warn.push(`<strong>${m.label}</strong>: first use streams <strong>${m.sizeMB} MB</strong> to your browser (${m.time}) and processing can take several minutes — results may be sharper than lighter models.`);
-    if (isHeavyScale(scale)) warn.push(`<strong>${scale}×</strong>: runs the AI twice — double processing time. The result is <em>larger</em>, not 8× more real detail, and may fail on phones (use 4× if it does).`);
+    if (m.heavy) warn.push(`<strong>${m.label}</strong>: first use streams <strong>${m.sizeMB} MB</strong> to your browser (${m.time}) and processing can take several minutes - results may be sharper than lighter models.`);
+    if (isHeavyScale(scale)) warn.push(`<strong>${scale}×</strong>: runs the AI twice - double processing time. The result is <em>larger</em>, not 8× more real detail, and may fail on phones (use 4× if it does).`);
     const wEl = $('au-warn');
     if (warn.length) {
       wEl.innerHTML = '⚠ ' + warn.join('<br>⚠ ') + (remember ? '' : `<label class="control-inline au-accept"><input type="checkbox" id="au-accept"> I understand the download/time trade-off</label>`);

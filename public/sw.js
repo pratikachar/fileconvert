@@ -1,4 +1,4 @@
-// FileForge service worker — network-only passthrough.
+// FileForge service worker - network-only passthrough.
 //
 // Caching is intentionally DISABLED. The previous cache-first / stale-while-revalidate
 // worker cached '/' and '/index.html' at install time and served them as a fallback,

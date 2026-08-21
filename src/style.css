@@ -1,5 +1,5 @@
 /* ============================================
-   FileForge — Premium Dark Theme
+   FileForge - Premium Dark Theme
    ============================================ */
 
 /* --- CSS Variables (Design Tokens) --- */
@@ -967,14 +967,21 @@ body {
   .nav-tabs {
     gap: 4px;
     padding: 5px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-tabs::-webkit-scrollbar {
+    display: none;
   }
 
   .nav-tab {
-    padding: 8px 4px;
+    padding: 8px 10px;
     font-size: 0.72rem;
     gap: 4px;
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 0 0 auto;
+    min-width: max-content;
     justify-content: center;
   }
 
@@ -984,9 +991,6 @@ body {
 
   .tab-label-short {
     display: inline;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: clip;
     white-space: nowrap;
   }
 
@@ -996,6 +1000,15 @@ body {
 }
 
 @media (max-width: 420px) {
+  .tab-icon {
+    display: none;
+  }
+
+  .nav-tab {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
   .logo-text {
     font-size: 20px;
   }

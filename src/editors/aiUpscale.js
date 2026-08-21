@@ -1,4 +1,4 @@
-// aiUpscale.js — Real-ESRGAN super-resolution in the browser via onnxruntime-web.
+// aiUpscale.js - Real-ESRGAN super-resolution in the browser via onnxruntime-web.
 // Models stream through a same-origin proxy on first use (COEP-safe) and are then
 // cached by the browser. 2x/8x are derived from the 4x model (downscale / double-pass).
 //
@@ -16,7 +16,7 @@ export const UPSCALE_TIERS = {
     ],
     sizeMB: 2.4,
     time: '~30 s',
-    bestFor: 'Everything — anime & casual photos',
+    bestFor: 'Everything - anime & casual photos',
     note: 'Lightest model, quickest first use.',
     heavy: false,
   },
@@ -28,7 +28,7 @@ export const UPSCALE_TIERS = {
     ],
     sizeMB: 4.9,
     time: '~1 min',
-    bestFor: 'Photos — slightly sharper than Fast',
+    bestFor: 'Photos - slightly sharper than Fast',
     note: 'Small but tuned for general/photo content.',
     heavy: false,
   },
@@ -51,8 +51,8 @@ export const UPSCALE_TIERS = {
     ],
     sizeMB: 64,
     time: '3–6 min',
-    bestFor: 'Photos & general — maximum detail',
-    note: 'Heaviest first download — wait once, cached after.',
+    bestFor: 'Photos & general - maximum detail',
+    note: 'Heaviest first download - wait once, cached after.',
     heavy: true,
   },
 };
@@ -60,7 +60,7 @@ export const UPSCALE_TIERS = {
 export const UPSCALE_SCALES = [
   { value: 2, label: '2×', note: 'Sharpest from 4× output' },
   { value: 4, label: '4×', note: 'Full AI detail' },
-  { value: 8, label: '8×', note: 'Double processing time — larger, not 8× more detail' },
+  { value: 8, label: '8×', note: 'Double processing time - larger, not 8× more detail' },
 ];
 
 export const INPUT_CAP = 1024;
@@ -68,7 +68,7 @@ export const ADV_INPUT_CAP = 2048;
 export const MAX_OUT_DIM = 8192;
 
 const TILE = 512; // model input tile (px)
-const PAD = 16; // overlap pad (px) — seams are averaged
+const PAD = 16; // overlap pad (px) - seams are averaged
 const HEAVY_TIERS = new Set(['anime', 'best']);
 
 const sessions = new Map(); // tier -> InferenceSession (reused across runs)

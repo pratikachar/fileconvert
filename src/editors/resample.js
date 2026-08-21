@@ -1,4 +1,4 @@
-// resample.js — high-quality browser resampling primitives (pure JS, no DOM).
+// resample.js - high-quality browser resampling primitives (pure JS, no DOM).
 // Powers the Image Editor Resize "Crisp" (Lanczos-3) method and the AI Upscale
 // mid/down-scale passes. The vertical pass is processed in bands so memory stays
 // bounded even for very large outputs.

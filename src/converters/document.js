@@ -1,5 +1,5 @@
 /**
- * Document Converter — Pure JavaScript data format conversions
+ * Document Converter - Pure JavaScript data format conversions
  * Supports: CSV, JSON, YAML, XML, Markdown, TXT
  */
 

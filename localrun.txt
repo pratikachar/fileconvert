@@ -2,11 +2,11 @@ To test it locally, CMD in local folder / powershell
 
 npm run dev
 
-Then open the link it prints — usually http://localhost:5173
+Then open the link it prints - usually http://localhost:5173
 
 
 
 
-The COOP/COEP headers FFmpeg needs come straight from your `vercel.json` — no extra config.
+The COOP/COEP headers FFmpeg needs come straight from your `vercel.json` - no extra config.
 
 https://fileforge-phi.vercel.app/

@@ -222,7 +222,7 @@ function jpegSegments(buf) {
     const payload = buf.slice(pos + 4, pos + 2 + len);
     segs.push({ marker, payload, at: pos, len });
     pos += 2 + len;
-    if (marker === 0xda) { // SOS — everything after is entropy-coded scan data, copy verbatim
+    if (marker === 0xda) { // SOS - everything after is entropy-coded scan data, copy verbatim
       tail = buf.slice(pos);
       break;
     }
@@ -272,7 +272,7 @@ function keepJPEGSegment(seg, opts) {
     if (looksAI(comment)) return !opts.stripPNGText;
     return true;
   }
-  return true; // SOF/DHT/DQT/SOS/etc — keep
+  return true; // SOF/DHT/DQT/SOS/etc - keep
 }
 
 function jpegExifSegment(payload) {

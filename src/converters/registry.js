@@ -1,5 +1,5 @@
 /**
- * Format Registry — Maps file extensions to categories, output formats, and converters
+ * Format Registry - Maps file extensions to categories, output formats, and converters
  */
 
 // Category definitions with icons
