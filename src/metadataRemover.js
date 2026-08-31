@@ -123,9 +123,26 @@ function pngTextKeyword(data) {
   return readASCII(data, 0, Math.min(32, data.length)).toLowerCase();
 }
 
-function pngTextValue(data) {
+function pngTextValue(data, type) {
   for (let i = 0; i < data.length; i++) {
-    if (data[i] === 0) return readASCII(data, i + 1, data.length - i - 1);
+    if (data[i] === 0) {
+      if (type === 'iTXt') {
+        // iTXt: keyword NUL | compressionFlag 1 | compressionMethod 1 | languageTag NUL | translatedKeyword NUL | text
+        if (i + 2 >= data.length) return '';
+        let pos = i + 3;
+        while (pos < data.length && data[pos] !== 0) pos++;
+        if (pos >= data.length) return '';
+        pos++;
+        while (pos < data.length && data[pos] !== 0) pos++;
+        if (pos >= data.length) return '';
+        return readASCII(data, pos + 1, data.length - pos - 1);
+      }
+      if (type === 'zTXt') {
+        // zTXt: keyword NUL | compressionMethod 1 | compressedText - return empty (compressed, keyword check covers AI detection)
+        return '';
+      }
+      return readASCII(data, i + 1, data.length - i - 1);
+    }
   }
   return '';
 }
@@ -166,7 +183,7 @@ function keepPNGChunk(type, data, opts) {
     const kw = pngTextKeyword(data);
     if (kw === 'c2pa' || kw === 'com.adobe.c2pa') return !opts.stripC2PA;
     if (kw === 'xml:com.adobe.xmp' || kw === 'xmp') return !opts.stripXMP;
-    const isAI = AI_PNG_KEYWORDS.includes(kw) || looksAI(pngTextValue(data));
+    const isAI = AI_PNG_KEYWORDS.includes(kw) || looksAI(pngTextValue(data, type)) || looksAI(kw);
     if (isAI) return !opts.stripPNGText;
     if (opts.mode === 'all') return false;
     return true;
@@ -460,11 +477,18 @@ function parseEXIF(exifBlock) {
         };
         const valuePos = () => (count > 4 ? off + u32(e + 8) : e + 8);
         if (tag === 0x010f && type === 2) out.make = readASCII(valuePos(), count);
+        else if (tag === 0x010e && type === 2) out.imageDesc = readASCII(valuePos(), count);
         else if (tag === 0x0110 && type === 2) out.model = readASCII(valuePos(), count);
         else if (tag === 0x0131 && type === 2) out.software = readASCII(valuePos(), count);
         else if (tag === 0x0132 && type === 2) out.datetime = readASCII(valuePos(), count);
         else if (tag === 0x9003 && type === 2) out.datetime = out.datetime || readASCII(valuePos(), count);
-        else if (tag === 0x8825 && type === 4 && count === 1) gpsIfd = off + u32(e + 8);
+        else if (tag === 0x9286 && (type === 7 || type === 2)) {
+          let s = readASCII(valuePos(), count);
+          if (s.startsWith('ASCII\0\0\0') || s.startsWith('UNICODE\0') || s.startsWith('JIS\0\0\0\0\0')) s = s.slice(8);
+          else if (s.startsWith('UTF8\0\0\0\0')) s = s.slice(8);
+          out.userComment = s;
+        } else if (tag === 0x8825 && type === 4 && count === 1) gpsIfd = off + u32(e + 8);
+        else if (tag === 0x8769 && type === 4 && count === 1) out._exifIfd = off + u32(e + 8);
       }
       return gpsIfd;
     };
@@ -480,6 +504,33 @@ function parseEXIF(exifBlock) {
       }
       if (found) out.gps = true;
     }
+    if (out._exifIfd != null && out._exifIfd + 2 <= buf.length) {
+      const n = u16(out._exifIfd);
+      for (let i = 0; i < n; i++) {
+        const e = out._exifIfd + 2 + i * 12;
+        if (e + 12 > buf.length) break;
+        const tag = u16(e);
+        const type = u16(e + 2);
+        const count = u32(e + 4);
+        const valuePos = count > 4 ? off + u32(e + 8) : e + 8;
+        const readASCII2 = (start, len) => {
+          let s = '';
+          for (let k = start; k < start + len && k < buf.length; k++) {
+            const c = buf[k];
+            if (!c) break;
+            s += String.fromCharCode(c);
+          }
+          return s;
+        };
+        if (tag === 0x9286 && (type === 7 || type === 2)) {
+          let s = readASCII2(valuePos, count);
+          if (s.startsWith('ASCII\0\0\0') || s.startsWith('UNICODE\0') || s.startsWith('JIS\0\0\0\0\0')) s = s.slice(8);
+          else if (s.startsWith('UTF8\0\0\0\0')) s = s.slice(8);
+          out.userComment = s;
+        } else if (tag === 0x9003 && type === 2) out.datetime = out.datetime || readASCII2(valuePos, count);
+      }
+      delete out._exifIfd;
+    }
     return out;
   } catch {
     return {};
@@ -494,7 +545,7 @@ function scanPNG(buf) {
     if (c.type === 'eXIf') report.exif = parseEXIF(c.data) || {};
     if (c.type === 'tEXt' || c.type === 'zTXt' || c.type === 'iTXt') {
       const kw = pngTextKeyword(c.data);
-      const val = pngTextValue(c.data);
+      const val = pngTextValue(c.data, c.type);
       if (kw === 'c2pa' || kw === 'com.adobe.c2pa') report.c2pa = true;
       if (kw === 'xml:com.adobe.xmp' || kw === 'xmp') report.xmp = true;
       report.text.push({ kw, val: val.slice(0, 60), raw: val });
@@ -532,6 +583,8 @@ function scanJPEG(buf) {
     }
   }
   if (report.exif.software && looksAI(report.exif.software)) report.ai.push('AI software');
+  if (report.exif.userComment && looksAI(report.exif.userComment)) report.ai.push('AI UserComment');
+  if (report.exif.imageDesc && looksAI(report.exif.imageDesc)) report.ai.push('AI description');
   return report;
 }
 
@@ -548,6 +601,8 @@ function scanWebP(buf) {
     if (c.tag === 'C2PA' || c.tag === 'c2pa') report.c2pa = true;
   }
   if (report.exif.software && looksAI(report.exif.software)) report.ai.push('AI software');
+  if (report.exif.userComment && looksAI(report.exif.userComment)) report.ai.push('AI UserComment');
+  if (report.exif.imageDesc && looksAI(report.exif.imageDesc)) report.ai.push('AI description');
   return report;
 }
 
@@ -685,9 +740,10 @@ export function setupAIMetadataRemover() {
     if (!badges.length) badges.push(badge('No metadata', 'b-clean'));
 
     const aiCount = (r.c2pa ? 1 : 0) + (r.xmp ? 1 : 0) + (r.ai.length ? 1 : 0) + (r.text.filter((t) => AI_PNG_KEYWORDS.includes(t.kw) || looksAI(t.val)).length ? 1 : 0);
+    const hasNoMeta = badges.some((b) => b.includes('No metadata'));
     const verdict = aiCount > 0
       ? `<div class="ai-verdict v-ai">⚠ ${aiCount} AI marker${aiCount > 1 ? 's' : ''}</div>`
-      : (badges.some((b) => b.includes('No metadata')) ? '<div class="ai-verdict v-clean">✓ No metadata</div>' : '<div class="ai-verdict v-meta">Metadata only</div>');
+      : (hasNoMeta ? '<div class="ai-verdict v-clean">✓ No embedded AI markers - common for ChatGPT / DALL-E downloads. Cleaning keeps pixels unchanged; you can still add camera data.</div>' : '<div class="ai-verdict v-meta">Metadata found - no AI markers</div>');
 
     const dims = item.dims ? `${item.dims.w}×${item.dims.h} · ` : '';
     const details = buildDetails(r);
@@ -725,6 +781,8 @@ export function setupAIMetadataRemover() {
     if (ex.make || ex.model || ex.software || ex.datetime) {
       lines.push('• EXIF: ' + [ex.make, ex.model, ex.software, ex.datetime].filter(Boolean).join(' · '));
     }
+    if (ex.userComment) lines.push('• EXIF UserComment: ' + ex.userComment.slice(0, 80));
+    if (ex.imageDesc) lines.push('• EXIF ImageDescription: ' + ex.imageDesc.slice(0, 80));
     if (ex.gps) lines.push('• GPS coordinates present');
     if (r.iptc) lines.push('• IPTC (Photoshop) metadata present');
     if (r.icc) lines.push('• ICC color profile present');

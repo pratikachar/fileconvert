@@ -204,3 +204,12 @@
   - `.tab-label-short`: dropped `overflow:hidden; text-overflow:clip` (kept `white-space:nowrap`).
   - At `≤420px`: `.tab-icon{display:none}` + `.nav-tab{flex:1 1 0; min-width:0}` → all 5 text-only tabs fill one row evenly; scroll still backs up ultra-narrow (<360px).
 - Verified: `npm run build` passes (exit 0). Visual check pending at 360/375/414/320px.
+
+## AI CLEANER FIX (No metadata wording + scanner gaps)
+- Symptom: AI-generated horror image showed "No metadata" / "✓ No metadata" with no details, even though user expected AI markers.
+- Root cause: Many ChatGPT/DALL-E/Midjourney downloads embed zero metadata chunks (pixels only) - correct "No metadata" for that file. Scanner also had gaps: `zTXt` compressed text never decompressed, `iTXt` parsed naive (garbled value), JPEG `UserComment (0x9286)` / `ImageDescription (0x010E)` in EXIF never inspected (including ExifIFD), so AI signatures in those fields missed.
+- Fix (`src/metadataRemover.js`):
+  - UI wording: verdict for empty report now reads "✓ No embedded AI markers - common for ChatGPT / DALL-E downloads. Cleaning keeps pixels unchanged; you can still add camera data." (`renderItem` + `hasNoMeta` check) and alternate "Metadata found - no AI markers" for non-AI metadata.
+  - `pngTextValue(data, type)` now type-aware: correctly extracts `iTXt` text (skips language/translatedKeyword), returns empty for `zTXt` compressed (keyword detection still covers it), and `keepPNGChunk` / `scanPNG` use the type-aware value + `looksAI(kw)` check. `scanPNG` correctly handles `iTXt` workflow/prompt even when compressed flag present.
+  - `parseEXIF`: added `ImageDescription (0x010E)` + `UserComment (0x9286)` (with ASCII/UTF8/JIS header stripping) and ExifIFD (`0x8769`) parsing for UserComment/DateTime. `scanJPEG` / `scanWebP` now flag `AI UserComment` / `AI description` via `looksAI()` on those fields. `buildDetails` shows UserComment/ImageDescription lines.
+- Verified: `npm run build` passes; existing PNG `parameters` tEXt detection still works (Node `scanBuffer` test: `parameters` -> ai:`["parameters"]`); iTXt `workflow` correctly extracted. Clean + add-camera flow unchanged (still verbatim JPEG tail, VP8X flag clearing).
