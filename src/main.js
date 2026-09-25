@@ -98,6 +98,15 @@ function setupFileConverter() {
   // Upload events
   fileInput.addEventListener('change', handleFileSelect);
 
+  // Explicit tap -> file dialog (same pattern as AI Cleaner).
+  // Required for Android WebView/APK wrappers: opacity:0 overlay inputs
+  // alone often don't trigger onShowFileChooser, but a .click() from a
+  // real user gesture does.
+  uploadZone.addEventListener('click', (e) => {
+    if (e.target.closest('input, select, textarea, button, a')) return;
+    fileInput.click();
+  });
+
   uploadZone.addEventListener('dragover', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -368,6 +377,12 @@ function setupIconGenerator() {
     if (e.target.files.length > 0) {
       loadIconSourceImage(e.target.files[0]);
     }
+  });
+
+  // Explicit tap -> file dialog (same pattern as AI Cleaner; fixes APK WebView).
+  iconUploadZone.addEventListener('click', (e) => {
+    if (e.target.closest('input, select, textarea, button, a')) return;
+    iconFileInput.click();
   });
 
   iconUploadZone.addEventListener('dragover', (e) => {

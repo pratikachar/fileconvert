@@ -213,3 +213,15 @@
   - `pngTextValue(data, type)` now type-aware: correctly extracts `iTXt` text (skips language/translatedKeyword), returns empty for `zTXt` compressed (keyword detection still covers it), and `keepPNGChunk` / `scanPNG` use the type-aware value + `looksAI(kw)` check. `scanPNG` correctly handles `iTXt` workflow/prompt even when compressed flag present.
   - `parseEXIF`: added `ImageDescription (0x010E)` + `UserComment (0x9286)` (with ASCII/UTF8/JIS header stripping) and ExifIFD (`0x8769`) parsing for UserComment/DateTime. `scanJPEG` / `scanWebP` now flag `AI UserComment` / `AI description` via `looksAI()` on those fields. `buildDetails` shows UserComment/ImageDescription lines.
 - Verified: `npm run build` passes; existing PNG `parameters` tEXt detection still works (Node `scanBuffer` test: `parameters` -> ai:`["parameters"]`); iTXt `workflow` correctly extracted. Clean + add-camera flow unchanged (still verbatim JPEG tail, VP8X flag clearing).
+
+## APK/WEBVIEW FIX (file picker opens in AI Cleaner but not Converter/Icon/Editor)
+- Symptom (APK-wrapped app on mobile): tapping upload in Converter / Icon / Editor never opened Files/Media/Camera; AI Cleaner tab worked.
+- Root cause: Converter + Icon relied ONLY on the invisible overlay input (`.file-input { opacity:0; position:absolute; inset:0 }`) with NO zone click handler - and the text content sat ABOVE the input (`z-index:1` vs auto), intercepting taps. Opacity:0 overlays routinely fail to trigger `onShowFileChooser` in Android WebView wrappers. Editor was worse: `<input hidden>` (= display:none) + button `.click()` - display:none inputs are ignored by the WebView file chooser. Converter's accept was also a 30+ extension list (`.png,.jpg,...`), which breaks chooser/camera in many wrappers. AI Cleaner worked because it uses the robust pattern: explicit `zone.click -> input.click()` from a real user gesture.
+- Fix (same robust pattern everywhere):
+  - `src/main.js`: added `uploadZone.click -> fileInput.click()` and `iconUploadZone.click -> iconFileInput.click()` guards (skip when tapping real inputs/buttons).
+  - `index.html`: `#editor-file` no longer `hidden`; now `.editor-file-hidden` (1px, opacity 0, never display:none).
+  - `src/editors/imageEditor.js`: tapping anywhere on the empty editor card opens the picker (button still handles itself).
+  - `src/converters/registry.js`: `getSupportedAccept()` now `image/*,audio/*,video/*,.csv,.json,.yaml,.yml,.xml,.md,.txt` - short MIME wildcards so Android offers Camera + Files.
+  - `src/style.css`: `.file-input` now `opacity:0.01; z-index:2` (on top of text, still invisible; some WebViews ignore pure opacity:0) + new `.editor-file-hidden` rule.
+- Verified: `npm run build` passes.
+- APK-side checklist for user: wrapper must implement `WebChromeClient.onShowFileChooser` (+ `onActivityResult`), grant `READ_MEDIA_IMAGES/VIDEO/AUDIO` (or `READ_EXTERNAL_STORAGE` pre-Android 13) + `CAMERA`, and rebuild the APK with the updated `dist/`.

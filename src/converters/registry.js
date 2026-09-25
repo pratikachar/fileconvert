@@ -116,10 +116,11 @@ export function formatFileSize(bytes) {
 }
 
 /**
- * Get all supported input extensions as a comma-separated list for file input accept
+ * Get the accept string for the converter file input.
+ * Uses short MIME wildcards for media (WebView/APK-safe: long extension
+ * lists break onShowFileChooser in many APK wrappers and hide the Camera
+ * option on Android) plus the document extensions.
  */
 export function getSupportedAccept() {
-  return Object.keys(FORMAT_REGISTRY)
-    .map((ext) => '.' + ext)
-    .join(',');
+  return 'image/*,audio/*,video/*,.csv,.json,.yaml,.yml,.xml,.md,.txt';
 }

@@ -41,7 +41,8 @@ export function setupImageEditor() {
   loadingTextEl = $('editor-loading-text');
   controlsEl = $('editor-controls');
 
-  // Upload entry points
+  // Upload entry points (explicit .click() from user gesture = APK WebView safe;
+  // the input must NOT be display:none, see .editor-file-hidden in style.css)
   $('editor-pick').addEventListener('click', () => $('editor-file').click());
   $('editor-file').addEventListener('change', (e) => {
     if (e.target.files[0]) loadImageFile(e.target.files[0]);
@@ -49,6 +50,13 @@ export function setupImageEditor() {
   });
 
   const empty = $('editor-empty');
+  // Tapping anywhere on the empty card (except the button itself, which
+  // already triggers the picker) opens the file dialog - same as AI Cleaner.
+  empty.addEventListener('click', (e) => {
+    if (e.target.closest('input, select, textarea, a')) return;
+    if (e.target.closest('#editor-pick')) return; // button handles itself
+    $('editor-file').click();
+  });
   empty.addEventListener('dragover', (e) => { e.preventDefault(); empty.classList.add('dragover'); });
   empty.addEventListener('dragleave', () => empty.classList.remove('dragover'));
   empty.addEventListener('drop', (e) => {
