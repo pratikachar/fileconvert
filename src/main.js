@@ -18,6 +18,7 @@ import { renderIconCanvas, buildIconPackage } from './generators/iconGenerator.j
 import { renderQRCanvas, renderQRSVG } from './generators/qrGenerator.js';
 import { setupImageEditor } from './editors/imageEditor.js';
 import { setupAIMetadataRemover } from './metadataRemover.js';
+import { setupAudioTab } from './audio/audioTab.js';
 
 // Helper DOM selector
 const $ = (sel) => document.querySelector(sel);
@@ -830,6 +831,7 @@ function init() {
   setupQRGenerator();
   setupImageEditor();
   setupAIMetadataRemover();
+  setupAudioTab();
   setupPasteUpload();
   registerServiceWorker();
 }
@@ -839,15 +841,15 @@ function setupPasteUpload() {
     const files = e.clipboardData && e.clipboardData.files;
     if (!files || files.length === 0) return;
     const file = files[0];
-    const converterActive = !document.getElementById('tab-content-converter').classList.contains('hidden');
-    const iconActive = !document.getElementById('tab-content-icon').classList.contains('hidden');
-    const aiActive = !document.getElementById('tab-content-ai').classList.contains('hidden');
-    if (converterActive && !currentFile) {
+    const activeId = (id) => !document.getElementById(id).classList.contains('hidden');
+    if (activeId('tab-content-converter') && !currentFile) {
       handleFile(file);
-    } else if (iconActive && !iconSourceImg) {
+    } else if (activeId('tab-content-icon') && !iconSourceImg) {
       loadIconSourceImage(file);
-    } else if (aiActive) {
+    } else if (activeId('tab-content-ai')) {
       window.__aiAddFiles && window.__aiAddFiles(Array.from(files));
+    } else if (activeId('tab-content-audio')) {
+      window.__audioAddFiles && window.__audioAddFiles(Array.from(files));
     }
   });
 }

@@ -95,6 +95,11 @@
             <span class="tab-label-full">AI Cleaner</span>
             <span class="tab-label-short">Clean</span>
           </button>
+          <button class="nav-tab" id="tab-btn-audio" data-tab="audio" role="tab" aria-selected="false">
+            <span class="tab-icon">🎵</span>
+            <span class="tab-label-full">Audio Toolbox</span>
+            <span class="tab-label-short">Audio</span>
+          </button>
         </nav>
       </header>
 
@@ -128,6 +133,7 @@
               <div class="upload-formats">
                 Supports images, audio, video & documents
               </div>
+              <p class="picker-hint">☁️ Prefer cloud storage? In the file picker tap <b>⋮</b> and switch on <b>Google Drive</b>, <b>Dropbox</b> or <b>OneDrive</b>.</p>
             </div>
             <input type="file" id="file-input" class="file-input" />
           </div>
@@ -332,6 +338,7 @@
               </div>
               <p class="upload-text">Upload your Icon or Logo</p>
               <p class="upload-subtext">Supports PNG, SVG, JPG, WebP (Square recommended)</p>
+              <p class="picker-hint">☁️ Prefer cloud storage? In the file picker tap <b>⋮</b> and switch on <b>Google Drive</b>, <b>Dropbox</b> or <b>OneDrive</b>.</p>
             </div>
             <input type="file" id="icon-file-input" class="file-input" accept="image/*" />
           </div>
@@ -724,6 +731,7 @@
               <p class="upload-subtext">Remove backgrounds, add text, filters, crop, resize &amp; compress. 100% in your browser.</p>
               <button id="editor-pick" class="btn-primary">Choose Image</button>
               <p class="upload-subtext" style="margin-top:10px">or drop / paste an image</p>
+              <p class="picker-hint">☁️ Prefer cloud storage? In the file picker tap <b>⋮</b> and switch on <b>Google Drive</b>, <b>Dropbox</b> or <b>OneDrive</b>.</p>
             </div>
             <input id="editor-file" type="file" accept="image/*" class="editor-file-hidden" aria-hidden="true" tabindex="-1" />
           </div>
@@ -801,6 +809,7 @@
               <p class="upload-text">Drop images here to check &amp; clean</p>
               <p class="upload-subtext">or click to browse · paste (Ctrl+V)</p>
               <div class="upload-formats">PNG · JPEG · WebP - up to 50 MB each · batch up to 20 files · ZIP accepted</div>
+              <p class="picker-hint">☁️ Prefer cloud storage? In the file picker tap <b>⋮</b> and switch on <b>Google Drive</b>, <b>Dropbox</b> or <b>OneDrive</b>.</p>
             </div>
             <input type="file" id="ai-file-input" class="file-input" multiple accept="image/png,image/jpeg,image/webp,.zip" />
           </div>
@@ -858,6 +867,93 @@
               </div>
               <div id="ai-result" class="ai-result hidden"></div>
               <p class="field-hint" style="margin-top:12px">Removes metadata only. Pixel-level watermarks (e.g. SynthID) and visual AI-detectors are not affected.</p>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <!-- TAB 6: AUDIO TOOLBOX -->
+      <div id="tab-content-audio" class="tab-content hidden">
+        <section class="hero">
+          <h1 class="hero-title">
+            Free <span class="gradient-text">Audio Toolbox</span>
+          </h1>
+          <p class="hero-subtitle">
+            Cut, merge, fade, normalize, change speed &amp; pitch, trim silence and rewrite tags.
+            Everything runs on your device - nothing is uploaded.
+          </p>
+        </section>
+
+        <main class="tool-section">
+          <!-- Upload Zone -->
+          <div id="audio-upload-zone" class="upload-zone">
+            <div class="upload-zone-content">
+              <div class="upload-icon">🎵</div>
+              <p class="upload-text">Drop an audio or video file here</p>
+              <p class="upload-subtext">or click to browse · add several files to merge them</p>
+              <div class="upload-formats">
+                MP3 · WAV · M4A · AAC · OGG · OPUS · FLAC · WMA · AIFF - plus MP4/MOV/MKV/AVI to extract audio
+              </div>
+              <p class="picker-hint">☁️ Prefer cloud storage? In the file picker tap <b>⋮</b> and switch on <b>Google Drive</b>, <b>Dropbox</b> or <b>OneDrive</b>.</p>
+            </div>
+            <input type="file" id="audio-file-input" class="file-input" multiple accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.flac,.wma,.aiff,.mp4,.mov,.m4v,.mkv,.avi,.webm,.flv,.3gp,.ogv" />
+          </div>
+
+          <!-- Workspace -->
+          <div id="audio-workspace" class="audio-workspace hidden">
+            <div class="controls-card">
+              <div class="audio-head-row">
+                <h3 class="controls-title">🎧 Loaded Files <span id="audio-file-count" class="tag tag-input">0</span></h3>
+                <button id="audio-add-more" class="btn-secondary btn-mini">+ Add files</button>
+              </div>
+              <div id="audio-file-list" class="audio-file-list"></div>
+              <p id="audio-active-meta" class="field-hint"></p>
+            </div>
+
+            <div class="controls-card">
+              <div class="audio-wave-wrap">
+                <canvas id="audio-canvas" class="audio-canvas"></canvas>
+                <p id="audio-wave-note" class="audio-wave-note hidden">Waveform unavailable for this file - enter exact times below instead.</p>
+              </div>
+              <div class="audio-transport">
+                <button id="audio-play" class="btn-secondary btn-mini">▶ Play</button>
+                <span id="audio-time" class="audio-time">0:00.000 / 0:00.000</span>
+                <button id="audio-preview-sel" class="btn-secondary btn-mini">▶ Preview selection</button>
+                <label class="control-inline"><input type="checkbox" id="audio-loop" checked /> Loop selection</label>
+              </div>
+              <p class="field-hint">Drag on the waveform to select a region · drag the edges to fine-tune · double-tap to select all. MP3 cuts land on frame boundaries (~26 ms).</p>
+            </div>
+
+            <div class="controls-card">
+              <h3 class="controls-title">🧰 Tools</h3>
+              <div id="audio-toolbar" class="audio-toolbar"></div>
+              <div id="audio-tool-panel" class="audio-tool-panel"></div>
+
+              <div class="audio-run-row">
+                <div class="option-group">
+                  <label for="audio-out-ext" class="option-label">Output format</label>
+                  <select id="audio-out-ext" class="form-select"></select>
+                </div>
+                <div class="option-group" id="audio-bitrate-group">
+                  <label for="audio-bitrate" class="option-label">Bitrate</label>
+                  <select id="audio-bitrate" class="form-select"></select>
+                </div>
+                <button id="audio-run" class="btn-primary">🎧 Process</button>
+              </div>
+
+              <div id="audio-progress" class="progress-section hidden">
+                <div class="progress-bar-track"><div id="audio-progress-bar" class="progress-bar-fill" style="width:0%"></div></div>
+                <p id="audio-progress-text" class="progress-text">Working…</p>
+              </div>
+            </div>
+
+            <div class="controls-card">
+              <div class="audio-head-row">
+                <h3 class="controls-title">📦 Results</h3>
+                <button id="audio-clear-results" class="btn-secondary btn-mini">Clear all</button>
+              </div>
+              <div id="audio-results" class="audio-results"></div>
+              <p class="field-hint">Every tool adds a new file here - your original is never modified.</p>
             </div>
           </div>
         </main>

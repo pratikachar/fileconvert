@@ -6,7 +6,11 @@
 - `netlify.toml` / `vercel.json` - Static deploy + COOP/COEP headers (FFmpeg.wasm requires them)
 - `public/manifest.webmanifest` - PWA manifest
 - `public/sw.js` - Service worker (offline app shell caching)
-- `src/main.js` - Tab nav (4 tabs), converter, icon, QR, editor orchestration + paste-upload + PWA register
+- `src/main.js` - Tab nav (6 tabs), converter, icon, QR, editor, audio, AI-cleaner orchestration + paste-upload + PWA register
+- `src/audio/ops.js` - Pure FFmpeg arg-builders for the 9 audio tools (Cut/Merge/Fade/Normalize/Speed+Pitch/Extract/Silence/Reverse/Tags)
+- `src/audio/waveform.js` - Peak computation, canvas waveform, time/x mapping, MP3 frame snapping
+- `src/audio/audioTab.js` - Audio Toolbox UI: file list, waveform + drag-select, transport, tool rail, results list
+- `scripts/test-audio-ops.mjs` - 60 Node checks for ops.js + waveform.js
 - `src/editors/imageEditor.js` - Image Editor orchestrator: canvas, history (undo/redo/reset), filters, text, crop, resize, compress, export (download/copy/share)
 - `src/editors/bgRemove.js` - Background removal via @imgly/background-removal (on-demand; models stream through the /imgly-data proxy; Fast/Balanced/Best, license gate for heavy)
 - `src/converters/registry.js` - Format registry (input -> category -> outputs), MIME types
@@ -22,6 +26,8 @@
 - **File Converter**: auto-detect file type, show matching outputs; image (Canvas), audio/video (FFmpeg.wasm), documents (pure JS)
 - **Icon Generator**: Windows/iOS/Android/Favicon from one image
 - **QR Generator**: URL/Text/Phone/Email/WiFi/WhatsApp/VCard/SMS/Geo/Event; shapes, colors, gradient, logo; PNG/WEBP/SVG export
+- **Audio Toolbox (6th tab)**: waveform + drag-select; Cut (lossless or re-encode), Merge, Fade, Normalize (loudnorm/gain), Speed & Pitch, Extract Audio from video, Silence Trim, Reverse, ID3 Metadata; results list with Play/Download/Share
+- **Cloud-picker hint**: every upload zone tells users to enable Google Drive/Dropbox/OneDrive in the system file picker (no API keys, no server)
 - **PWA**: installable + offline (manifest + service worker)
 - **UX**: paste-to-upload (Ctrl+V), copy-result-to-clipboard, custom output filename, image resize, QR error-correction selector
 - **Responsive**: mobile nav tabs (icon-only), 2-col formats grid, sticky mobile QR preview, safe-area padding
@@ -196,7 +202,37 @@
 - [ ] Confirm jsDelivr mirrors serve correctly from the deployed site (CORS is open on jsDelivr/raw GitHub)
 - [ ] Optional: prefetch/prime Fast model when user opens the tool for snappier first run
 
-## MOBILE TAB BAR FIX (clipped labels)
+## AUDIO TOOLBOX (6th tab) + CLOUD-PICKER HINT - NEW FEATURE
+- Added 6th tab "Audio Toolbox" (`tab-btn-audio`, 🎵 / short "Audio"): cut, merge, fade, normalize, speed & pitch, extract audio from video, silence trim, reverse, ID3 metadata. **Zero new runtime dependencies** - everything runs on the existing FFmpeg.wasm core.
+- Engine fact (verified from ffmpeg.wasm build): `@ffmpeg/core@0.12.10` = FFmpeg **5.1.4**, `--enable-gpl`, no `--disable-filters` → `afade/loudnorm/silenceremove/areverse/atempo/asetrate/aresample/alimiter` + `concat` demuxer all available. Encoders: libmp3lame, libvorbis, libopus, native aac/flac/pcm, libx264/libvpx for video.
+- New files: `src/audio/ops.js` (pure arg-builders, Node-testable), `src/audio/waveform.js` (peaks/canvas/time-mapping), `src/audio/audioTab.js` (UI orchestration), `scripts/test-audio-ops.mjs` (60 Node checks).
+- `src/converters/media.js` reworked: exports `getFFmpeg()` (shared singleton - the Audio tab reuses the one 31MB core instead of downloading a second), `runFFmpeg({args,inputs,outputs,onProgress})` generic runner that always deletes temp files, and `fsName()`. **Fixed a pre-existing leak**: `ffmpeg.on('progress')` used to be registered inside `convertMedia` on every call, stacking listeners.
+- Waveform: peaks from Web Audio `decodeAudioData`; for files >80MB (or when decode fails) falls back to FFmpeg `-f s16le -ac 1 -ar 8000` so a 30-min track costs ~29MB of Int16 instead of ~600MB of Float32. Transport = `<audio>` + rAF playhead + loop-in-selection. Selection is frame-snapped (MP3 = 1152 samples/frame, ~26ms).
+- Cut has 2 modes: **Lossless** (`-c copy`, same-format only, bit-exact + instant) and **Re-encode** (any format, required for fades/speed/pitch).
+- All tools are non-destructive: every output becomes a row in a Results list (Play / Download / Share / Remove). Originals are never touched.
+- BUGS FIXED (found by testing, not guessing):
+  - `atempoChain` **infinite loop / RangeError** for rates <0.5 (divided the residual instead of dividing by the factor). Caught by the unit tests.
+  - Waveform drag **could never create a selection**: the initial state selects the whole file, so every drag resolved to "move" and got clamped to a no-op. Now a full-length selection is treated as "no selection yet".
+  - `silenceremove` produced **0-byte output** for every input. Root cause: `stop_periods=1` in a single instance empties the stream in this build. Fix: two chained `silenceremove` instances with `stop_periods=-1` for the tail. Verified against leading-only / trailing-only / both / clean inputs.
+  - Tool rail rendered empty until a file was picked (no initial `renderTools()`/`renderPanel()` in setup).
+  - `.nav-tabs` shrink-wrapped at ≤640px (`.header` is `align-items:flex-start`) leaving dead space; now `align-self: stretch`.
+- Cloud upload = **Option A only** (no API keys, no OAuth, no server): a `.picker-hint` line on all 5 upload zones - "In the file picker tap ⋮ and switch on Google Drive / Dropbox / OneDrive". The Android SAF picker already lists those providers; no code needed and the privacy promise holds.
+- VERIFICATION: `npm run build` passes; **60 Node checks** pass (arg-builders, atempo math, frame snapping, peak math); headless-Edge CDP E2E **8/8** (boot with 0 console errors, 6 tabs, tab opens, file accepted, waveform drawn, 2 real FFmpeg runs); **live tool sweep 9/9** - fade, speed, silence, reverse, merge, normalize, tags (confirmed `ID3` header on the output) all produce real results, 0 exceptions; silence-trim matrix 4/4 correct durations; nav measured at 320/360/375/414/640/900px - no clipped labels, no horizontal overflow.
+- Not live-tested (unit-tested only, needs a real video input): Extract Audio. `-vn -map 0:a:0` path is the same `runFFmpeg` proven by the other 8 tools.
+- Known limits: MP3 cuts land on ~26ms frame boundaries (inherent to MP3); fades/speed/pitch/normalize always re-encode; the core is the single-threaded build so speed/pitch on long files is slow; first use needs network for the 31MB core (same as today's audio conversion).
+
+## Next Steps (Audio Toolbox)
+- [ ] Live-test Extract Audio with a real MP4/MKV on desktop + phone
+- [ ] Test Merge with mixed sources (mp3 + m4a + wav) and normalize on a quiet phone recording
+- [ ] Long-file test (>20 min) to confirm the FFmpeg PCM waveform fallback engages cleanly
+- [ ] Rebuild the APK with the new 6th tab + verify the cloud-picker hint matches the wrapper's file chooser
+
+## MOBILE NAV (6 tabs)
+- `src/style.css` `@media (max-width:420px)`: `.nav-tabs{gap:3px;padding:5px 4px}` + `.nav-tab{flex:1 1 auto; min-width:max-content; padding:8px 7px; font-size:0.68rem}` (6 short labels no longer fit evenly, so tabs size to their label and the row scrolls instead of clipping).
+- `@media (max-width:640px)`: `.nav-tabs{align-self:stretch}` because `.header` is `align-items:flex-start` there and the row was shrink-wrapping.
+- Verified 320/360/375/414/640/900px: full-width row, 6 labels, no clipping, no page overflow.
+
+## MOBILE TAB BAR FIX (clipped labels - 5-tab era, superseded by MOBILE NAV above)
 - Symptom: on phones the 5 nav tabs squeezed to equal width and the longer short labels ("Convert", "Clean") got clipped silently (`overflow:hidden; text-overflow:clip`) so text was cut off (e.g. "Conv", "Clea").
 - Fix (`src/style.css`, `@media (max-width:640px)` + `@media (max-width:420px)`):
   - `.nav-tabs`: `overflow-x:auto` + hidden scrollbar (`scrollbar-width:none` + `::-webkit-scrollbar{display:none}`) → swipeable safety net at 641–420px.
