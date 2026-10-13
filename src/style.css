@@ -2319,6 +2319,12 @@ body {
   display: none;
 }
 
+.audio-workspace.drop-active {
+  outline: 2px dashed var(--accent);
+  outline-offset: 6px;
+  border-radius: var(--radius-lg, 16px);
+}
+
 .audio-head-row {
   display: flex;
   align-items: center;
@@ -2371,6 +2377,43 @@ body {
 }
 .audio-file-chip .af-icon {
   font-size: 1.1rem;
+}
+
+.audio-file-chip .af-del {
+  flex-shrink: 0;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+.audio-file-chip .af-del:hover {
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+.audio-file-chip .af-del.armed {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+  font-weight: 700;
+}
+
+.audio-result.armed {
+  border-color: rgba(239, 68, 68, 0.55);
+  background: rgba(239, 68, 68, 0.07);
+}
+
+.audio-result .btn-mini.armed {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fecaca;
+  font-weight: 700;
 }
 
 .audio-wave-wrap {

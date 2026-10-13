@@ -17,9 +17,10 @@ import {
 } from './waveform.js';
 
 const $ = (id) => document.getElementById(id);
-const MAX_FILES = 12;
+const MAX_FILES = 20;
 const WEB_AUDIO_SKIP_BYTES = 80 * 1024 * 1024;
 const PCM_FALLBACK_RATE = 8000;
+const CONFIRM_TIMEOUT = 5000;
 
 const state = {
   files: [],
@@ -30,6 +31,8 @@ const state = {
   sel: { start: 0, end: 0 },
   results: [],
   drag: null,
+  confirm: { kind: null, id: null },
+  confirmTimer: null,
 };
 
 let canvas = null;
@@ -111,6 +114,30 @@ export function setupAudioTab() {
 
   $('audio-add-more').addEventListener('click', () => input.click());
 
+  // Multi-file drop anywhere in the workspace, so adding more files never
+  // requires going back to the (hidden) upload zone.
+  const workspace = $('audio-workspace');
+  const hasFiles = (e) => e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  workspace.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    workspace.classList.add('drop-active');
+  });
+  workspace.addEventListener('dragleave', (e) => {
+    if (e.target === workspace) workspace.classList.remove('drop-active');
+  });
+  workspace.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    workspace.classList.remove('drop-active');
+    addFiles(Array.from(e.dataTransfer.files || []));
+  });
+  // Stop the browser from navigating away / opening files dropped outside a zone.
+  ['dragover', 'drop'].forEach((t) => {
+    window.addEventListener(t, (e) => { if (hasFiles(e)) e.preventDefault(); });
+  });
+
   // Output format / bitrate
   const sel = $('audio-out-ext');
   sel.innerHTML = ops.AUDIO_OUT_FORMATS.map((f) => `<option value="${f.ext}">${f.label}</option>`).join('');
@@ -135,6 +162,13 @@ export function setupAudioTab() {
 
   $('audio-run').addEventListener('click', runTool);
   $('audio-clear-results').addEventListener('click', clearResults);
+
+  // Tapping anywhere else cancels an armed delete.
+  document.addEventListener('pointerdown', (e) => {
+    if (!state.confirm.kind) return;
+    if (e.target.closest('.af-del, [data-act="remove"], [data-mv="rm"]')) return;
+    cancelArmedDelete();
+  });
 
   // Transport
   $('audio-play').addEventListener('click', togglePlay);
@@ -217,33 +251,134 @@ function addFiles(list) {
   }
 
   if (rejected.length) toast(`Unsupported: ${rejected.slice(0, 3).join(', ')}`);
+  if (state.files.length >= MAX_FILES && accepted.length) toast(`Limit is ${MAX_FILES} files`);
   if (!accepted.length) return;
 
   $('audio-upload-zone').style.display = 'none';
   $('audio-workspace').classList.remove('hidden');
 
   renderFileList();
-  const target = accepted.length ? state.files.find((f) => f.id === state.seq) : activeFile();
-  if (target) setActive(target.id);
-  else renderTools();
+  // Keep the file the user is working on. Switching to the newest file would
+  // reset the selection and the tool panel behind their back.
+  if (state.activeId == null && state.files.length) {
+    const keep = accepted.length ? state.files.find((f) => f.id === state.files[state.files.length - accepted.length].id) : state.files[0];
+    setActive(keep.id);
+  } else {
+    renderTools();
+    renderPanel();
+  }
+}
+
+/**
+ * Two-step delete shared by loaded files, the merge list and the results list:
+ * first click arms the button, second click removes. Disarms after 5s.
+ */
+function armDelete(kind, id) {
+  if (state.confirm.kind === kind && state.confirm.id === id) {
+    clearTimeout(state.confirmTimer);
+    state.confirm = { kind: null, id: null };
+    if (kind === 'file') removeFile(id);
+    else removeResult(id);
+    return;
+  }
+  clearTimeout(state.confirmTimer);
+  state.confirm = { kind, id };
+  renderConfirmTargets();
+  state.confirmTimer = setTimeout(() => {
+    state.confirm = { kind: null, id: null };
+    renderConfirmTargets();
+  }, CONFIRM_TIMEOUT);
+}
+
+function cancelArmedDelete() {
+  if (!state.confirm.kind) return;
+  clearTimeout(state.confirmTimer);
+  state.confirm = { kind: null, id: null };
+  renderConfirmTargets();
+}
+
+/** Re-render whichever lists show an armed delete button. */
+function renderConfirmTargets() {
+  renderFileList();
+  renderResults();
+  if (state.tool === 'merge') renderPanel();
+}
+
+function removeFile(id) {
+  const idx = state.files.findIndex((f) => f.id === id);
+  if (idx === -1) return;
+  const [gone] = state.files.splice(idx, 1);
+  if (gone) URL.revokeObjectURL(gone.url);
+  if (gone && gone.id === state.activeId) {
+    state.activeId = null;
+    const next = state.files[Math.min(idx, state.files.length - 1)];
+    if (next) setActive(next.id);
+  }
+
+  renderFileList();
+  renderTools();
+
+  if (!state.files.length) {
+    stopPlayback();
+    $('audio-workspace').classList.add('hidden');
+    $('audio-upload-zone').style.display = '';
+    state.sel = { start: 0, end: 0 };
+    return;
+  }
+  draw();
+  renderPanel();
+}
+
+function removeResult(id) {
+  const idx = state.results.findIndex((r) => r.id === id);
+  if (idx === -1) return;
+  const [gone] = state.results.splice(idx, 1);
+  if (gone) URL.revokeObjectURL(gone.url);
+  if (resultPlayer && resultPlayer.dataset.id === String(id)) {
+    resultPlayer.pause();
+    resultPlayer.removeAttribute('src');
+  }
+  renderResults();
 }
 
 function renderFileList() {
   const list = $('audio-file-list');
   $('audio-file-count').textContent = String(state.files.length);
+  if (!state.files.length) {
+    list.innerHTML = '<p class="audio-empty-note">No files loaded - drop them here or tap "+ Add files".</p>';
+    return;
+  }
   list.innerHTML = state.files
     .map((f) => {
       const dur = f.duration ? ` · ${formatTime(f.duration)}` : '';
-      return `<button class="audio-file-chip${f.id === state.activeId ? ' active' : ''}" data-id="${f.id}" type="button">
+      const armed = state.confirm.kind === 'file' && state.confirm.id === f.id;
+      return `<div class="audio-file-chip${f.id === state.activeId ? ' active' : ''}" data-id="${f.id}" role="button" tabindex="0">
         <span class="af-icon">${f.isVideo ? '🎬' : '🎵'}</span>
-        <span class="af-name">${escapeHtml(f.name)}</span>
+        <span class="af-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
         <span class="af-meta">${formatBytes(f.size)}${dur}</span>
-      </button>`;
+        <button type="button" class="af-del${armed ? ' armed' : ''}" data-del="${f.id}"
+          title="${armed ? 'Click again to delete' : 'Remove this file'}">${armed ? '✓ Delete' : '✕'}</button>
+      </div>`;
     })
     .join('');
 
   list.querySelectorAll('.audio-file-chip').forEach((chip) => {
-    chip.addEventListener('click', () => setActive(parseInt(chip.dataset.id, 10)));
+    const id = parseInt(chip.dataset.id, 10);
+    chip.addEventListener('click', (e) => {
+      if (e.target.closest('.af-del')) return;
+      cancelArmedDelete();
+      setActive(id);
+    });
+    chip.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        setActive(id);
+      }
+    });
+    chip.querySelector('.af-del').addEventListener('click', (e) => {
+      e.stopPropagation();
+      armDelete('file', id);
+    });
   });
 }
 
@@ -522,14 +657,23 @@ async function previewSelection() {
 // ============================================
 function renderTools() {
   const item = activeFile();
+  const audioCount = state.files.filter((f) => !f.isVideo).length;
   const bar = $('audio-toolbar');
   bar.innerHTML = ops.TOOLS.map((t) => {
     let disabled = false;
-    if (t.needsVideo) disabled = !(item && item.isVideo);
-    else if (t.needsAudio) disabled = !(item && !item.isVideo);
-    else if (t.id === 'merge') disabled = state.files.filter((f) => !f.isVideo).length < 2;
-    else if (t.id === 'tags') disabled = !(item && ops.isTaggable(item.ext));
-    return `<button type="button" class="audio-tool-btn${state.tool === t.id ? ' active' : ''}" data-tool="${t.id}"${disabled ? ' disabled' : ''}>${t.label}</button>`;
+    let why = '';
+    if (t.needsVideo) {
+      disabled = !(item && item.isVideo);
+      why = 'Load a video file (MP4/MOV/MKV/AVI/WEBM) to extract its audio.';
+    } else if (t.needsFiles) {
+      disabled = audioCount < t.needsFiles;
+      why = `Load at least ${t.needsFiles} audio files to merge them.`;
+    } else if (t.needsTaggable) {
+      disabled = !(item && ops.isTaggable(item.ext));
+      why = 'Tags work on MP3/M4A/AAC/OGG/OPUS/FLAC. For a video, run Extract Audio first, then tag the result.';
+    }
+    const title = disabled ? why : '';
+    return `<button type="button" class="audio-tool-btn${state.tool === t.id ? ' active' : ''}" data-tool="${t.id}"${disabled ? ' disabled' : ''}${title ? ` title="${escapeHtml(title)}"` : ''}>${t.label}</button>`;
   }).join('');
 }
 
@@ -578,15 +722,19 @@ function renderPanel() {
     const videos = state.files.filter((f) => f.isVideo);
     el.innerHTML = `
       <label class="control-label">Merge order (top to bottom)</label>
-      ${state.files.map((f, i) => `<div class="audio-result">
+      ${state.files.map((f, i) => {
+          const armed = state.confirm.kind === 'file' && state.confirm.id === f.id;
+          return `<div class="audio-result${armed ? ' armed' : ''}">
           <span class="ar-name">${i + 1}. ${escapeHtml(f.name)}</span>
           <span class="ar-meta">${f.isVideo ? 'video - skipped' : formatBytes(f.size)}</span>
           <span class="ar-actions">
             <button type="button" class="btn-secondary btn-mini" data-mv="up" data-i="${i}"${i === 0 ? ' disabled' : ''}>↑</button>
             <button type="button" class="btn-secondary btn-mini" data-mv="down" data-i="${i}"${i === state.files.length - 1 ? ' disabled' : ''}>↓</button>
-            <button type="button" class="btn-secondary btn-mini" data-mv="rm" data-i="${i}">✕</button>
+            <button type="button" class="btn-secondary btn-mini${armed ? ' armed' : ''}" data-mv="rm" data-i="${i}"
+              title="${armed ? 'Click again to remove this file' : 'Remove this file from the list'}">${armed ? '✓ Delete' : '✕'}</button>
           </span>
-        </div>`).join('')}
+        </div>`;
+        }).join('')}
       <p class="field-hint">Merges ${audioOnly.length} audio file${audioOnly.length === 1 ? '' : 's'} into one track, re-encoded to the chosen format so mixed sources still join cleanly.${videos.length ? ` Video files (${videos.length}) are skipped - use Extract Audio on them first.` : ''}</p>`;
     el.querySelectorAll('[data-mv]').forEach((b) => {
       b.addEventListener('click', () => {
@@ -595,13 +743,8 @@ function renderPanel() {
         if (mv === 'up' && i > 0) [state.files[i - 1], state.files[i]] = [state.files[i], state.files[i - 1]];
         else if (mv === 'down' && i < state.files.length - 1) [state.files[i + 1], state.files[i]] = [state.files[i], state.files[i + 1]];
         else if (mv === 'rm') {
-          const [gone] = state.files.splice(i, 1);
-          if (gone) URL.revokeObjectURL(gone.url);
-          if (gone && gone.id === state.activeId) state.activeId = null;
-        }
-        if (!state.activeId && state.files.length) {
-          const keep = state.files.find((f) => f.peaks) || state.files[0];
-          setActive(keep.id);
+          armDelete('file', state.files[i].id);
+          return;
         }
         renderFileList();
         renderTools();
@@ -788,7 +931,7 @@ async function runTool() {
       outName = fsName(`out.${outExt}`);
 
       if (state.tool === 'cut') {
-        args = ops.buildTrim({ inName, outName, start: o.start, end: o.end, outExt, bitrate: br, fadeIn: o.fadeIn, fadeOut: o.fadeOut, lossless: o.lossless });
+        args = ops.buildTrim({ inName, outName, start: o.start, end: o.end, outExt, bitrate: br, fadeIn: o.fadeIn, fadeOut: o.fadeOut, lossless: o.lossless, audioOnly: item.isVideo });
       } else if (state.tool === 'fade') {
         args = ops.buildFade({ inName, outName, duration: item.duration, fadeIn: o.fadeIn, fadeOut: o.fadeOut, outExt, bitrate: br });
       } else if (state.tool === 'normalize') {
@@ -815,7 +958,7 @@ async function runTool() {
       } else if (state.tool === 'reverse') {
         args = ops.buildReverse({ inName, outName, outExt, bitrate: br });
       } else if (state.tool === 'tags') {
-        args = ops.buildTags({ inName, outName, tags: o.tags });
+        args = ops.buildTags({ inName, outName, tags: o.tags, audioOnly: item.isVideo });
         downloadName = `${base}-tagged.${outExt}`;
       }
     }
@@ -864,8 +1007,9 @@ function renderResults() {
     return;
   }
   wrap.innerHTML = state.results
-    .map(
-      (r) => `<div class="audio-result">
+    .map((r) => {
+      const armed = state.confirm.kind === 'result' && state.confirm.id === r.id;
+      return `<div class="audio-result${armed ? ' armed' : ''}">
         <span class="af-icon">🎧</span>
         <span class="ar-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</span>
         <span class="ar-meta">${formatBytes(r.size)}</span>
@@ -873,10 +1017,11 @@ function renderResults() {
           <button type="button" class="btn-secondary btn-mini" data-act="play" data-id="${r.id}">▶</button>
           <button type="button" class="btn-primary btn-mini" data-act="download" data-id="${r.id}">⬇</button>
           <button type="button" class="btn-secondary btn-mini" data-act="share" data-id="${r.id}">📤</button>
-          <button type="button" class="btn-secondary btn-mini" data-act="remove" data-id="${r.id}">✕</button>
+          <button type="button" class="btn-secondary btn-mini${armed ? ' armed' : ''}" data-act="remove" data-id="${r.id}"
+            title="${armed ? 'Click again to delete this result' : 'Delete this result'}">${armed ? '✓ Delete' : '✕'}</button>
         </span>
-      </div>`
-    )
+      </div>`;
+    })
     .join('');
 
   wrap.querySelectorAll('button[data-act]').forEach((b) => {
@@ -887,11 +1032,7 @@ function renderResults() {
       if (act === 'download') downloadResult(r);
       else if (act === 'play') playResult(r, b);
       else if (act === 'share') shareResult(r);
-      else if (act === 'remove') {
-        URL.revokeObjectURL(r.url);
-        state.results = state.results.filter((x) => x.id !== r.id);
-        renderResults();
-      }
+      else if (act === 'remove') armDelete('result', r.id);
     });
   });
 }
@@ -943,6 +1084,12 @@ async function shareResult(r) {
 }
 
 function clearResults() {
+  clearTimeout(state.confirmTimer);
+  state.confirm = { kind: null, id: null };
+  if (resultPlayer) {
+    resultPlayer.pause();
+    resultPlayer.removeAttribute('src');
+  }
   for (const r of state.results) URL.revokeObjectURL(r.url);
   state.results = [];
   renderResults();

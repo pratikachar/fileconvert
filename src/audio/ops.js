@@ -88,7 +88,7 @@ function fadeChain(fadeIn, fadeOut, duration) {
 /**
  * Cut a selection. -ss before -i seeks fast; -t caps the output length.
  */
-export function buildTrim({ inName, outName, start = 0, end = null, outExt = 'mp3', bitrate = 192, fadeIn = 0, fadeOut = 0, lossless = false }) {
+export function buildTrim({ inName, outName, start = 0, end = null, outExt = 'mp3', bitrate = 192, fadeIn = 0, fadeOut = 0, lossless = false, audioOnly = false }) {
   const s = Math.max(0, Number(start) || 0);
   const e = end == null ? null : Math.max(0, Number(end) || 0);
   const dur = e != null && e > s ? e - s : null;
@@ -98,6 +98,7 @@ export function buildTrim({ inName, outName, start = 0, end = null, outExt = 'mp
   if (dur != null) args.push('-t', r3(dur));
 
   if (copy) {
+    if (audioOnly) args.push('-map', '0:a:0');
     args.push('-c', 'copy', '-avoid_negative_ts', 'make_zero');
   } else {
     const chain = fadeChain(fadeIn, fadeOut, dur);
@@ -187,8 +188,11 @@ export function buildReverse({ inName, outName, outExt = 'mp3', bitrate = 192 })
 }
 
 /** Rewrite tags with -c copy so the audio itself is untouched. */
-export function buildTags({ inName, outName, tags = {} }) {
-  const args = ['-i', inName, '-c', 'copy'];
+export function buildTags({ inName, outName, tags = {}, audioOnly = false }) {
+  const args = ['-i', inName];
+  // For video inputs (or MP3s with embedded cover art) keep only the audio stream.
+  if (audioOnly) args.push('-map', '0:a:0');
+  args.push('-c', 'copy');
   const keys = { title: 'title', artist: 'artist', album: 'album', genre: 'genre', year: 'date', comment: 'comment' };
   for (const [k, metaKey] of Object.entries(keys)) {
     const v = (tags[k] || '').trim();
@@ -205,13 +209,13 @@ export function estimateDurationAfter(duration, { rate = 1 } = {}) {
 }
 
 export const TOOLS = [
-  { id: 'cut', label: '✂️ Cut', needsAudio: true },
-  { id: 'merge', label: '🔗 Merge', needsAudio: false },
-  { id: 'fade', label: '🌗 Fade', needsAudio: false },
-  { id: 'normalize', label: '🔊 Normalize', needsAudio: false },
-  { id: 'speed', label: '⏩ Speed & Pitch', needsAudio: true },
+  { id: 'cut', label: '✂️ Cut' },
+  { id: 'merge', label: '🔗 Merge', needsFiles: 2 },
+  { id: 'fade', label: '🌗 Fade' },
+  { id: 'normalize', label: '🔊 Normalize' },
+  { id: 'speed', label: '⏩ Speed & Pitch' },
   { id: 'extract', label: '🎬 Extract Audio', needsVideo: true },
-  { id: 'silence', label: '🤫 Silence Trim', needsAudio: true },
-  { id: 'reverse', label: '⏪ Reverse', needsAudio: true },
-  { id: 'tags', label: '🏷 Metadata', needsAudio: false },
+  { id: 'silence', label: '🤫 Silence Trim' },
+  { id: 'reverse', label: '⏪ Reverse' },
+  { id: 'tags', label: '🏷 Metadata', needsTaggable: true },
 ];

@@ -221,6 +221,25 @@
 - Not live-tested (unit-tested only, needs a real video input): Extract Audio. `-vn -map 0:a:0` path is the same `runFFmpeg` proven by the other 8 tools.
 - Known limits: MP3 cuts land on ~26ms frame boundaries (inherent to MP3); fades/speed/pitch/normalize always re-encode; the core is the single-threaded build so speed/pitch on long files is slow; first use needs network for the 31MB core (same as today's audio conversion).
 
+## AUDIO TOOLBOX FIXES (user report: dead tools, no multi-add, no delete)
+- **Root cause of the dead tools (reproduced, not guessed)**: tool buttons were gated on the ACTIVE file being non-video (`needsAudio`), and `addFiles()` auto-switched the active file to the newest one. So dropping an MP4 (or any video) after an audio file made Cut/Speed/Silence/Reverse/merge go grey while Fade/Normalize stayed live — exactly "cut is default, I switch to fade, then I can't pick cut again; merge/reverse/speed not active". A CDP matrix confirmed it: audio active → all enabled; video active → 5 disabled.
+- Fixes:
+  - `src/audio/ops.js` `TOOLS`: dropped `needsAudio` entirely. Only `extract` is video-only, `merge` needs 2+ audio files, `tags` needs a taggable format. Every audio tool now works on video inputs too (FFmpeg + Web Audio handle the audio track).
+  - `renderTools()` now sets a `title` tooltip explaining WHY a button is disabled instead of leaving a mystery grey button.
+  - `addFiles()` no longer steals focus: the active file is kept unless none is selected (previously every add reset the selection + tool panel).
+  - `buildTrim`/`buildTags` gained `audioOnly` → adds `-map 0:a:0` so cutting/tagging a video (or an MP3 with embedded cover art) never copies the video stream.
+  - **Multi-file**: `MAX_FILES` 12 → 20; the whole `#audio-workspace` is now a drop target (dragover shows `.drop-active` outline), plus a window-level `dragover`/`drop` guard so a stray drop can't make the browser navigate away.
+  - **Delete loaded files** with approval: each file chip has a ✕ that arms on first click ("✓ Delete", red) and removes on the second, auto-resetting after 5s. Revokes the object URL, moves the active file to a neighbour, and restores the upload zone when the last file goes. Keyboard accessible (Enter/Space to activate a chip).
+  - `index.html`: added a tip line under the file list explaining drop-anywhere + the two-click delete.
+- Verified: `npm run build` green; 60 Node checks green; headless-Edge CDP **11/11** (3 files in one add, merge enabled, active file preserved, all 7 audio tools selectable across 2 full rounds, video active keeps every audio tool + enables extract, fade→cut switch works with a video active, delete arms then deletes, deleting all restores the upload zone, workspace accepts drops); live FFmpeg sweep **11/11** including cut+normalize on a video input and MP3 tagging (ID3 header confirmed), 0 exceptions.
+
+## TWO-CLICK DELETE NOW IN ALL 3 PLACES (merge list + results)
+- Refactored the per-list confirm into ONE shared mechanism: `state.confirm = {kind, id}` + `armDelete(kind, id)` / `cancelArmedDelete()` / `renderConfirmTargets()` / `removeFile(id)` / `removeResult(id)`. First click arms ("✓ Delete", red + row highlight), second click removes, tap anywhere else or wait 5s to cancel.
+- Merge panel: its ✕ already called the confirm but **never re-rendered the panel**, so the button gave no visual feedback while arming (the file list did). Now `renderConfirmTargets()` re-renders the file list, the results AND the merge panel, so the armed state shows in every place that lists the same file.
+- Results list: ✕ deleted immediately with no confirmation - now uses the same two-click flow; `removeResult()` also revokes the object URL and stops playback if that result was playing. `clearResults()` now stops playback and clears any armed state too.
+- Added `.audio-result.armed` + `.btn-mini.armed` styling (red border/row tint) in `src/style.css`.
+- Verified: `npm run build` green; 60 Node checks green; headless-Edge CDP **10/10** on the delete flows (merge arms-then-deletes 3->2, armed state mirrored in the file list, outside tap cancels, results arms-then-deletes 2->1 removing the correct row, Clear all still works); regression sweep **6/6** (3 files load, 7 tools clickable over 2 rounds, video input keeps tools alive, fade->cut switch, real FFmpeg cut on a video input = 25 KB, chip delete 3->2), 0 exceptions.
+
 ## Next Steps (Audio Toolbox)
 - [ ] Live-test Extract Audio with a real MP4/MKV on desktop + phone
 - [ ] Test Merge with mixed sources (mp3 + m4a + wav) and normalize on a quiet phone recording
