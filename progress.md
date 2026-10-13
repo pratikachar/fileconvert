@@ -254,6 +254,20 @@
 - Keyboard users keep a focus indicator via `:focus-visible` (1px purple outline) so removing the underline doesn't hurt accessibility for mouse/touch users who never see it.
 - Verified: build passes; 60 Node checks pass; headless-Edge computed styles at 900px and 375px both report 9.92px font, 0.55 opacity, `text-decoration:none`, `border-bottom:0px none`, tap area 90x26, arrow `↗` at 0.6 opacity; hover gives purple colour + arrow opacity 1 + translate(1px,-1px) and still NO underline; mobile screenshot reviewed.
 
+## STICKY TAB BAR (option B) + SCROLL RESET ON TAB SWITCH
+- Answer to "is the header sticky?": **no** - `.header` was in normal flow, nothing covered the top. The only sticky element was the QR preview card.
+- Implemented the chosen option B: moved `<nav class="nav-tabs">` **out of `<header>`** to be a direct child of `#app` and made it `position: sticky; top: 0`. A sticky element can only travel inside its parent's box, so keeping it in `.header` would have made stickiness inert - this is why the markup moved rather than duplicating.
+  - The logo + privacy-badge row scrolls away normally; only the 6-tab row pins.
+  - `padding-top: calc(6px + env(safe-area-inset-top))` keeps it clear of the phone status bar in the installed standalone PWA (the ≤640px rule repeats this so `padding: 4px` cannot wipe it).
+  - `background: rgba(10,10,15,0.82)` + existing backdrop blur, so content passing under it stays readable.
+  - `z-index: 100` - above content, below the toast (200), media overlay (999) and error toast (1000).
+  - `html { scroll-padding-top: calc(var(--nav-h,56px) + 16px) }` keeps anchored scrolling clear of the bar.
+- **No auto-hide on scroll-down**, deliberately: a scroll listener that hides the nav fights the user (scroll a bit, want to switch tabs, nav is gone) and flickers on trackpad momentum. Measured height is only 42px on mobile (short labels) / 76px on desktop (full labels).
+- New in `main.js`: publishes the bar's measured height to `--nav-h` via ResizeObserver + resize, so offsets below it stay correct across breakpoints and safe areas.
+- BUG FIXED while verifying: `.qr-layout` had `align-items: start`, so `.qr-preview-column` was exactly as tall as the card - the "sticky" preview had **zero travel** and simply scrolled away. Added `.qr-preview-column { align-self: stretch }` (column height 587 -> 898px) so the live preview now genuinely pins below the tab bar via `top: calc(var(--nav-h,56px) + 12px)`.
+- BUG FIXED: switching tabs preserved the previous scroll offset, so you could land mid-page on a tab you had not seen. Now `window.scrollTo(0, 0)` on every tab change.
+- Verified: build passes; 60 Node checks pass; headless-Edge **20/20** at 1280x800 and 375x740 (nav in natural place at load, pins to exactly 0 when scrolled, logo scrolls away, bar 76px desktop / 42px mobile, z-index 100, all 6 tabs present when pinned, no horizontal overflow, QR preview pins 12px clear of the bar, tab switch resets scroll); post-change regression **6/6** (6 tabs wired, every tab opens, header gap 26px, audio merge still produces 96 KB, two-click delete 2->1, `--nav-h` published = 42px), 0 exceptions.
+
 ## Next Steps (Audio Toolbox)
 - [ ] Live-test Extract Audio with a real MP4/MKV on desktop + phone
 - [ ] Test Merge with mixed sources (mp3 + m4a + wav) and normalize on a quiet phone recording

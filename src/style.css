@@ -129,7 +129,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding: 8px 0 24px;
+  padding: 8px 0 20px;
   animation: fadeSlideDown 0.6s ease-out;
 }
 
@@ -150,6 +150,20 @@ body {
   border: 1px solid var(--border-color);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-sm);
+  /* Pins under the logo row once you scroll past it. Safe-area padding keeps it
+     clear of the phone status bar in the installed standalone PWA. */
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  margin-bottom: 24px;
+  padding-top: calc(6px + env(safe-area-inset-top));
+  background: rgba(10, 10, 15, 0.82);
+  animation: fadeSlideDown 0.6s ease-out;
+}
+
+/* Keep anchored scrolling clear of the sticky bar. */
+html {
+  scroll-padding-top: calc(var(--nav-h, 56px) + 16px);
 }
 
 .nav-tab {
@@ -1038,7 +1052,9 @@ body {
 
   .nav-tabs {
     gap: 4px;
-    padding: 5px;
+    padding: 4px;
+    /* keep the status-bar clearance that the desktop rule adds */
+    padding-top: calc(4px + env(safe-area-inset-top));
     overflow-x: auto;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
@@ -1409,6 +1425,13 @@ body {
   align-items: start;
 }
 
+/* .qr-layout is align-items:start, so the preview column was exactly as tall as
+   the card - giving the sticky preview no travel room (it just scrolled away).
+   Stretching the column lets the live preview pin under the tab bar. */
+.qr-preview-column {
+  align-self: stretch;
+}
+
 .qr-types-nav {
   display: flex;
   flex-wrap: wrap;
@@ -1564,7 +1587,7 @@ body {
   align-items: center;
   gap: 16px;
   position: sticky;
-  top: 24px;
+  top: calc(var(--nav-h, 56px) + 12px); /* clears the sticky tab bar */
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-md);
 }

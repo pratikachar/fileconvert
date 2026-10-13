@@ -67,9 +67,11 @@
             <span>100% Free & Client-Side</span>
           </div>
         </div>
+      </header>
 
-        <!-- Navigation Tabs -->
-        <nav class="nav-tabs" role="tablist">
+      <!-- Navigation Tabs - outside <header> so position:sticky can pin them to the
+           viewport; a sticky child can only travel within its parent's box. -->
+      <nav class="nav-tabs" role="tablist">
           <button class="nav-tab active" id="tab-btn-converter" data-tab="converter" role="tab" aria-selected="true">
             <span class="tab-icon">📁</span>
             <span class="tab-label-full">File Converter</span>
@@ -101,7 +103,6 @@
             <span class="tab-label-short">Audio</span>
           </button>
         </nav>
-      </header>
 
       <!-- TAB 1: FILE CONVERTER -->
       <div id="tab-content-converter" class="tab-content active">

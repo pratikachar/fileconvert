@@ -29,6 +29,19 @@ const $$ = (sel) => document.querySelectorAll(sel);
 // ============================================
 function setupTabNavigation() {
   const tabs = $$('.nav-tab');
+
+  // The tab bar is sticky, so anything that sticks below it needs its real
+  // height (it changes with breakpoints and the status-bar safe area).
+  const nav = document.querySelector('.nav-tabs');
+  if (nav) {
+    const publish = () => {
+      document.documentElement.style.setProperty('--nav-h', `${Math.round(nav.getBoundingClientRect().height)}px`);
+    };
+    publish();
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(publish).observe(nav);
+    window.addEventListener('resize', publish);
+  }
+
   tabs.forEach((tab) => {
     tab.addEventListener('click', () => {
       const tabTarget = tab.getAttribute('data-tab');
@@ -50,6 +63,10 @@ function setupTabNavigation() {
       if (activeContent) {
         activeContent.classList.remove('hidden');
       }
+
+      // Start each tab at its top; otherwise you land mid-page on a tab you
+      // have not seen yet.
+      window.scrollTo(0, 0);
     });
   });
 }
