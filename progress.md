@@ -240,6 +240,20 @@
 - Added `.audio-result.armed` + `.btn-mini.armed` styling (red border/row tint) in `src/style.css`.
 - Verified: `npm run build` green; 60 Node checks green; headless-Edge CDP **10/10** on the delete flows (merge arms-then-deletes 3->2, armed state mirrored in the file list, outside tap cancels, results arms-then-deletes 2->1 removing the correct row, Clear all still works); regression sweep **6/6** (3 files load, 7 tools clickable over 2 rounds, video input keeps tools alive, fade->cut switch, real FFmpeg cut on a video input = 25 KB, chip delete 3->2), 0 exceptions.
 
+## FOOTER CREDIT + FIXED UNDEFINED --accent VARIABLE
+- Footer: added `<p class="footer-credit">Made by <a class="credit-link" href="https://pratik-acharya.netlify.app/" target="_blank" rel="noopener noreferrer">Pratik Acharya</a></p>`.
+- Deliberately the smallest element on the page: `font-size:0.62rem` (~9.9px, vs 11.2px for the sub-line and 12.8px for the main line), `opacity:0.55`, muted colour.
+- Hover is subtle: the line lifts to `opacity:0.95`, the name turns the accent purple and gains a faint 45%-alpha underline. Also works on keyboard focus (`:focus-visible`).
+- **Pre-existing bug found & fixed**: `var(--accent)` was used in **17 places** but never defined (only `--accent-purple` etc. exist), so every one of those accent colours/borders was silently dropped - Image Editor tool-button hovers, crop dashed border, license-note links, audio tool hovers, delete-button hovers, etc. Added `--accent: #a855f7;` to `:root` as an alias, which revives all 17 at once without touching the cascade.
+- Verified: `npm run build` passes; 60 Node checks pass; headless-Edge computed styles confirm 9.92px/0.55 idle and purple + 45% underline + 0.95 opacity on hover; screenshots of both states checked.
+
+## FOOTER CREDIT - touch-friendly affordance (hover removed)
+- Removed the hover underline. Hover now only shifts the colour + nudges the arrow.
+- **Mobile problem solved**: touch has no hover, so a hover-only affordance is invisible on phones. Added a permanent tiny `↗` external-link glyph inside the link (the standard "leaves the site" convention) - visible at rest on every device, no interaction needed. Plus `:active` styling (purple + full arrow) so a tap gives immediate feedback.
+- Tap target: added `padding:7px 4px` to the 9.9px link, growing the hit area from ~12px to **26px tall** while looking unchanged (`margin-top` reduced 8px -> 2px to keep the visual gap).
+- Keyboard users keep a focus indicator via `:focus-visible` (1px purple outline) so removing the underline doesn't hurt accessibility for mouse/touch users who never see it.
+- Verified: build passes; 60 Node checks pass; headless-Edge computed styles at 900px and 375px both report 9.92px font, 0.55 opacity, `text-decoration:none`, `border-bottom:0px none`, tap area 90x26, arrow `↗` at 0.6 opacity; hover gives purple colour + arrow opacity 1 + translate(1px,-1px) and still NO underline; mobile screenshot reviewed.
+
 ## Next Steps (Audio Toolbox)
 - [ ] Live-test Extract Audio with a real MP4/MKV on desktop + phone
 - [ ] Test Merge with mixed sources (mp3 + m4a + wav) and normalize on a quiet phone recording

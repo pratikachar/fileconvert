@@ -21,6 +21,9 @@
   --accent-pink: #ec4899;
   --accent-green: #34d399;
   --accent-orange: #fb923c;
+  /* Alias: many rules use var(--accent), which was never defined, so all of
+     those accent hovers/borders were silently dropped. */
+  --accent: #a855f7;
 
   --gradient-main: linear-gradient(135deg, #a855f7, #22d3ee, #ec4899);
   --gradient-btn: linear-gradient(135deg, #a855f7 0%, #6366f1 50%, #22d3ee 100%);
@@ -833,6 +836,63 @@ body {
 .footer-sub {
   margin-top: 4px;
   font-size: 0.7rem;
+}
+
+/* --- Footer credit --- */
+.footer-credit {
+  margin-top: 2px;
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  opacity: 0.55;
+  transition: opacity var(--transition-normal);
+}
+
+.credit-link {
+  color: inherit;
+  text-decoration: none;
+  /* Generous padding on a 10px line = a usable tap target that still looks tiny. */
+  padding: 7px 4px;
+  transition: color var(--transition-normal);
+}
+
+/* Touch devices get no hover, so the arrow is a permanent affordance. */
+.credit-ext {
+  font-size: 0.8em;
+  opacity: 0.6;
+  margin-left: 3px;
+  vertical-align: 0.25em;
+  transition: opacity var(--transition-normal), transform var(--transition-normal);
+}
+
+.credit-link:hover,
+.credit-link:focus-visible {
+  color: var(--accent);
+}
+
+.credit-link:hover .credit-ext {
+  opacity: 1;
+  transform: translate(1px, -1px);
+}
+
+/* Tap feedback: the only feedback a phone user ever gets. */
+.credit-link:active {
+  color: var(--accent);
+}
+.credit-link:active .credit-ext {
+  opacity: 1;
+}
+
+.footer-credit:hover,
+.footer-credit:active {
+  opacity: 0.95;
+}
+
+/* Keyboard only: keeps a focus indicator without decorating mouse/touch use. */
+.credit-link:focus-visible {
+  outline: 1px solid rgba(168, 85, 247, 0.5);
+  outline-offset: 1px;
+  border-radius: 3px;
 }
 
 /* --- Animations --- */
