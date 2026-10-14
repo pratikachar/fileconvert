@@ -68,6 +68,24 @@ function bytesToHex(buf, start, len) {
   return s;
 }
 
+/**
+ * Raw byte-substring search that does NOT stop at NUL bytes (unlike readASCII).
+ * Needed for APP11/JUMBF: the header "JUMBF" is followed by NUL CI bytes, so a
+ * NUL-terminated read can never see the "c2pa" box type sitting behind them.
+ */
+function payloadContains(payload, str, maxLen = 256) {
+  const n = Math.min(maxLen, payload.length);
+  const m = str.length;
+  if (m === 0 || n < m) return false;
+  outer: for (let i = 0; i <= n - m; i++) {
+    for (let j = 0; j < m; j++) {
+      if (payload[i + j] !== str.charCodeAt(j)) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
 function looksAI(text) {
   if (!text) return false;
   const t = text.toLowerCase();
@@ -252,6 +270,9 @@ function jpegApp1Kind(payload) {
   const head = readASCII(payload, 0, Math.min(40, payload.length));
   if (head.startsWith('Exif')) return 'exif';
   if (head.startsWith('http://ns.adobe.com/xap/1.0')) return 'xmp';
+  // Extended XMP spans several APP1 segments under a different header; it is
+  // still XMP and must be detected and stripped like the standard one.
+  if (head.startsWith('http://ns.adobe.com/xmp/extension')) return 'xmp';
   if (head.startsWith('http://ns.adobe.com/exif/1.0')) return 'exif-xmp';
   if (head.startsWith('JUMBF') || head.includes('c2pa') || head.includes('application/c2pa')) return 'c2pa';
   return 'other';
@@ -275,8 +296,17 @@ function keepJPEGSegment(seg, opts) {
       if (head.startsWith('MPF')) return true;
       return true;
     }
+    if (seg.marker === 0xeb) { // APP11: JUMBF (C2PA) or other uses (JXL codestreams)
+      if (!opts.stripC2PA || !opts._c2paAPP11) return true;
+      // The file carries a C2PA manifest: drop every JUMBF-headed chunk of that
+      // stream. Non-JUMBF APP11 is always kept. JXL ("jxlc") streams never set
+      // _c2paAPP11, so image-carrying JUMBF data is never touched.
+      return !payloadContains(seg.payload, 'JUMBF', 8);
+    }
     if (seg.marker === 0xed) { // APP13 Photoshop/IPTC
-      const head = readASCII(seg.payload, 0, Math.min(12, seg.payload.length));
+      // NOTE: the window must cover "Photoshop 3.0" + NUL (14 bytes); a 12-byte
+      // window truncates it to "Photoshop 3." which never matches anything.
+      const head = readASCII(seg.payload, 0, Math.min(16, seg.payload.length));
       if (head.startsWith('Photoshop 3.0')) return opts.mode === 'ai' || !opts.stripEXIF;
       return true;
     }
@@ -348,6 +378,11 @@ function buildExifTIFF(make, model, software, datetime) {
 
 function processJPEG(buf, opts) {
   const { segs, tail } = jpegSegments(buf);
+  // Pre-pass for APP11 (JUMBF): only strip JUMBF-headed chunks when the file
+  // actually carries a C2PA manifest. This keeps JXL-in-JUMBF codestreams and
+  // any other non-C2PA APP11 use byte-for-byte intact.
+  const c2paInAPP11 = segs.some((s) => s.marker === 0xeb && payloadContains(s.payload, 'c2pa', 256));
+  const o = { ...opts, _c2paAPP11: c2paInAPP11 };
   const out = [new Uint8Array([0xff, 0xd8])];
   if (opts.addCamera) {
     const now = new Date();
@@ -361,7 +396,7 @@ function processJPEG(buf, opts) {
   }
   for (const seg of segs) {
     if (seg.marker === 0xd9) { out.push(new Uint8Array([0xff, 0xd9])); break; }
-    if (!keepJPEGSegment(seg, opts)) continue;
+    if (!keepJPEGSegment(seg, o)) continue;
     if (seg.marker >= 0xd0 && seg.marker <= 0xd8) {
       out.push(new Uint8Array([0xff, seg.marker]));
       continue;
@@ -559,7 +594,7 @@ function scanPNG(buf) {
 
 function scanJPEG(buf) {
   const { segs } = jpegSegments(buf);
-  const report = { format: 'jpeg', c2pa: false, xmp: false, exif: {}, icc: false, iptc: false, ai: [] };
+  const report = { format: 'jpeg', c2pa: false, xmp: false, exif: {}, icc: false, iptc: false, text: [], ai: [] };
   for (const seg of segs) {
     if (seg.marker === 0xe1) {
       const kind = jpegApp1Kind(seg.payload);
@@ -573,9 +608,22 @@ function scanJPEG(buf) {
       const head = readASCII(seg.payload, 0, Math.min(12, seg.payload.length));
       if (head.startsWith('ICC_PROFILE')) report.icc = true;
     }
+    if (seg.marker === 0xeb) {
+      // C2PA / Content Credentials live in APP11 (JUMBF), not APP1. The "c2pa"
+      // box type sits behind NUL CI bytes, so search raw bytes, not a
+      // NUL-terminated string. JXL codestreams ("jxlc") never contain it.
+      if (payloadContains(seg.payload, 'c2pa', 256)) report.c2pa = true;
+    }
     if (seg.marker === 0xed) {
-      const head = readASCII(seg.payload, 0, Math.min(12, seg.payload.length));
-      if (head.startsWith('Photoshop 3.0')) report.iptc = true;
+      const head = readASCII(seg.payload, 0, Math.min(16, seg.payload.length));
+      if (head.startsWith('Photoshop 3.0')) {
+        report.iptc = true;
+        const soup = Array.from(
+          seg.payload.slice(0, 4096),
+          (b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : ' ')
+        ).join('');
+        if (looksAI(soup)) report.ai.push('AI IPTC');
+      }
     }
     if (seg.marker === 0xfe) {
       const comment = readASCII(seg.payload, 0, seg.payload.length);
@@ -590,7 +638,7 @@ function scanJPEG(buf) {
 
 function scanWebP(buf) {
   const chunks = parseWebPChunks(buf);
-  const report = { format: 'webp', c2pa: false, xmp: false, exif: {}, icc: false, ai: [] };
+  const report = { format: 'webp', c2pa: false, xmp: false, exif: {}, icc: false, text: [], ai: [] };
   for (const c of chunks) {
     if (c.tag === 'ICCP') report.icc = true;
     if (c.tag === 'EXIF') {
@@ -693,6 +741,9 @@ export function setupAIMetadataRemover() {
   modeBtns.forEach((b) => {
     b.addEventListener('click', () => setMode(b.dataset.mode));
   });
+  // The HTML ships every checkbox checked, which contradicts the default
+  // "AI-only (keep camera data)" mode. Sync once so the initial UI matches it.
+  setMode('ai');
 
   addCameraChk.addEventListener('change', () => {
     cameraFields.classList.toggle('hidden', !addCameraChk.checked);
@@ -732,14 +783,14 @@ export function setupAIMetadataRemover() {
     const badges = [];
     if (r.c2pa) badges.push(badge('C2PA', 'b-warn'));
     if (r.xmp) badges.push(badge('XMP', 'b-warn'));
-    if (r.exif && (r.exif.make || r.exif.model || r.exif.software || r.exif.gps)) badges.push(badge('EXIF', 'b-info'));
+    if (r.exif && (r.exif.make || r.exif.model || r.exif.software || r.exif.datetime || r.exif.gps)) badges.push(badge('EXIF', 'b-info'));
     if (r.icc) badges.push(badge('ICC', 'b-info'));
     if (r.iptc) badges.push(badge('IPTC', 'b-info'));
     if (r.text && r.text.length) badges.push(badge(r.text.length + ' PNG tag' + (r.text.length > 1 ? 's' : ''), 'b-info'));
     if (r.ai && r.ai.length) badges.push(badge('AI', 'b-ai'));
     if (!badges.length) badges.push(badge('No metadata', 'b-clean'));
 
-    const aiCount = (r.c2pa ? 1 : 0) + (r.xmp ? 1 : 0) + (r.ai.length ? 1 : 0) + (r.text.filter((t) => AI_PNG_KEYWORDS.includes(t.kw) || looksAI(t.val)).length ? 1 : 0);
+    const aiCount = (r.c2pa ? 1 : 0) + (r.xmp ? 1 : 0) + ((r.ai || []).length ? 1 : 0) + ((r.text || []).filter((t) => AI_PNG_KEYWORDS.includes(t.kw) || looksAI(t.val)).length ? 1 : 0);
     const hasNoMeta = badges.some((b) => b.includes('No metadata'));
     const verdict = aiCount > 0
       ? `<div class="ai-verdict v-ai">⚠ ${aiCount} AI marker${aiCount > 1 ? 's' : ''}</div>`

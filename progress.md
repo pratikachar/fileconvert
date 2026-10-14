@@ -268,6 +268,30 @@
 - BUG FIXED: switching tabs preserved the previous scroll offset, so you could land mid-page on a tab you had not seen. Now `window.scrollTo(0, 0)` on every tab change.
 - Verified: build passes; 60 Node checks pass; headless-Edge **20/20** at 1280x800 and 375x740 (nav in natural place at load, pins to exactly 0 when scrolled, logo scrolls away, bar 76px desktop / 42px mobile, z-index 100, all 6 tabs present when pinned, no horizontal overflow, QR preview pins 12px clear of the bar, tab switch resets scroll); post-change regression **6/6** (6 tabs wired, every tab opens, header gap 26px, audio merge still produces 96 KB, two-click delete 2->1, `--nav-h` published = 42px), 0 exceptions.
 
+## AI CLEANER JPEG AUDIT (user report: uploaded JPG showed no details)
+User symptom: a JPG showed no report details. Investigation found the REAL cause plus 4 more JPEG bugs, all fixed and verified.
+
+**ROOT CAUSE of the reported symptom (reproduced in headless Edge): `renderItem` crashed on EVERY jpg/webp upload.**
+`aiCount` called `r.text.filter(...)`, but only `scanPNG` sets a `text` array - JPEG/WebP reports have no `text` field. The TypeError aborted `renderList()` mid-loop, leaving a visibly empty report panel (the panel itself opened, so it looked like "no details"). PNG uploads never hit it, which is why the earlier 22-check E2E passed.
+- Fix: `(r.text || [])` (+ `(r.ai || [])`) in `aiCount`; also gave `scanJPEG`/`scanWebP` a `text: []` so all three report shapes match.
+- Verified live: a plain JPEG upload now renders 1 card with zero errors.
+
+**BUG 2 - C2PA in JPEG was completely invisible (scan AND strip).** Real Content Credentials embed JUMBF in **APP11 (0xFFEB)**, which the code never inspected. Worse, the `"c2pa"` box sits behind NUL CI bytes, so even a NUL-terminated read could never see it. Effect: AI JPGs carrying Credentials (Firefly/Photoshop) reported "No embedded AI markers", and AI-mode cleaning left the Credentials intact.
+- Fix: `scanJPEG` flags APP11 containing `c2pa` in the first 256 raw bytes (new `payloadContains` helper, NUL-safe). `processJPEG` does a pre-pass and strips every JUMBF-headed APP11 chunk only when a C2PA manifest is present - so JXL-in-JUMBF (`jxlc`, no `c2pa`) codestreams and any other APP11 use survive byte-for-byte (verified).
+- Legacy JUMBF-in-APP1 path kept as-is and now covered by tests.
+
+**BUG 3 - IPTC was never detected NOR stripped on any real JPEG.** Both `scanJPEG` and `keepJPEGSegment` read only a 12-byte header window, but `"Photoshop 3.0" + NUL` is 14 bytes - the window truncates to `"Photoshop 3."`, which never matches. Fix: 16-byte window in both places. Also added an `AI IPTC` marker (printable-soup scan of the first 4KB, same spirit as the COM check).
+
+**BUG 4 - Extended XMP missed.** Multi-segment XMP uses `http://ns.adobe.com/xmp/extension/1.0/` and was classified `other` (never flagged, never stripped). `jpegApp1Kind` now maps it to `xmp`, so the existing strip flag covers it.
+
+**BUG 5 - "AI-only (keep camera data)" stripped camera EXIF out of the box.** The HTML ships every checkbox checked, but `setMode('ai')` (which unchecks Strip-EXIF) only ran on button clicks - never on init. The first clean therefore removed camera EXIF despite the label. Fix: `setMode('ai')` once at setup so the initial UI matches the default mode. Verified: `PhoneCam` survives an AI-mode clean again.
+
+**UI consistency:** the EXIF badge required make/model/software/gps, so a DateTime-only EXIF showed "No metadata" while Details showed an EXIF line. The badge now includes `datetime` too.
+
+**Files:** `src/metadataRemover.js` (fixes), `scripts/test-ai-jpeg.mjs` (new, permanent: 34 Node checks over 8 synthetic JPEG shapes + strip assertions).
+**Verification:** `npm run build` green; 34/34 Node checks (phone-style/big-endian/datetime-only/C2PA/JXL-negative/extended-XMP/IPTC+AI-caption/APP1-JUMBF, AI-mode + remove-all stripping); headless-Edge E2E **21/21** on pixel-valid canvas JPEGs with spliced-in markers (badges, verdicts, Details text, dims, clean flow, output bytes: no APP11/XMP/C2PA, EXIF+ICC kept, SOI..EOI valid, re-decodes 64x64), 0 page exceptions.
+**Not an app bug (environmental):** headless `Browser.setDownloadBehavior` downloads start (`downloadWillBegin`/`downloadProgress`) but then report `canceled` and never land - while the identical anchor-download of data:/blob: URLs completes in the same browser. The `<a download>` mechanism is also what the other four tabs use successfully, so this is a harness quirk, not a product defect; output bytes were verified by tapping the result Blob in-page instead.
+
 ## Next Steps (Audio Toolbox)
 - [ ] Live-test Extract Audio with a real MP4/MKV on desktop + phone
 - [ ] Test Merge with mixed sources (mp3 + m4a + wav) and normalize on a quiet phone recording
