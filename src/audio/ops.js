@@ -4,7 +4,11 @@
  *
  * The browser core is FFmpeg 5.1.4 built with --enable-gpl and no
  * --disable-filters, so afilter (afade/loudnorm/silenceremove/areverse/
- * atempo/asetrate/aresample/alimiter) and the concat demuxer are available.
+ * atempo/asetrate/aresample/alimiter/afftdn/highpass/lowpass/agate) and the
+ * concat demuxer are available. Verified live against the pinned core:
+ * afftdn, anlmdn, asendcmd, highpass, lowpass, agate, loudnorm, equalizer.
+ * NOTE: anlmdn is present but measured 0.0 dB reduction at s=7..60 while
+ * running 2-4x slower than afftdn, so it is deliberately NOT offered.
  */
 
 export const AUDIO_OUT_FORMATS = [
@@ -40,6 +44,18 @@ export function isSupportedInput(ext) {
 
 export function isTaggable(ext) {
   return TAGGABLE_EXTS.includes(ext);
+}
+
+/** Upload size policy: the wasm FS transiently holds ~2-3x the file size. */
+export const AUDIO_WARN_BYTES = 150 * 1024 * 1024;
+export const AUDIO_HARD_BYTES = 500 * 1024 * 1024;
+
+/** 'ok' | 'warn' (slow, needs memory) | 'refuse' (would likely OOM the tab). */
+export function classifyAudioSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n > AUDIO_HARD_BYTES) return 'refuse';
+  if (n > AUDIO_WARN_BYTES) return 'warn';
+  return 'ok';
 }
 
 /** Same-format copies that keep the audio bit-exact (no re-encode). */
@@ -208,6 +224,133 @@ export function estimateDurationAfter(duration, { rate = 1 } = {}) {
   return duration != null ? duration / r : null;
 }
 
+/* ----------------------- Noise cleanup ----------------------- */
+
+/**
+ * Preset table. Values were measured live against the pinned core on a
+ * -17 dB white-noise bed: Standard gives ~2.5 dB reduction with the tone
+ * untouched (-0.3 dB); Strong gives ~8 dB with the tone at -0.7 dB.
+ * tn (track_noise) measured HARMFUL on short/mixed content (0.0 dB), so it
+ * defaults off everywhere.
+ */
+export const DENOISE_PRESETS = {
+  light: { label: 'Light', desc: 'Gentle hiss tidy-up, safest for music.', highpass: 80, lowpass: 0, nr: 8, nf: -30, rf: -50, tn: false, nt: 'white' },
+  standard: { label: 'Standard', desc: 'Everyday cleanup for voice memos & calls.', highpass: 80, lowpass: 0, nr: 12, nf: -25, rf: -50, tn: false, nt: 'white' },
+  strong: { label: 'Strong', desc: 'Heavy hiss/hum. May soften fine detail.', highpass: 100, lowpass: 0, nr: 30, nf: -20, rf: -60, tn: false, nt: 'white' },
+  voice: { label: 'Voice focus', desc: 'Podcast/voice: trims rumble and harsh highs too.', highpass: 100, lowpass: 15000, nr: 12, nf: -25, rf: -50, tn: false, nt: 'white' },
+  custom: { label: 'Custom', desc: 'Your slider values below.', highpass: 80, lowpass: 0, nr: 12, nf: -25, rf: -50, tn: false, nt: 'white' },
+};
+
+export const NOISE_TYPES = ['white', 'vinyl', 'shellac'];
+export const HIGHPASS_CHOICES = [0, 40, 80, 100, 120, 200];
+export const LOWPASS_CHOICES = [0, 8000, 12000, 15000, 18000];
+
+/** Audio encoder to use when the container is a video format.
+ *  NOTE: libopus is deliberately absent - its encoder traps the pinned
+ *  wasm core (verified live), so WebM uses libvorbis instead. */
+export const VIDEO_CONTAINER_AUDIO = {
+  mp4: 'aac', m4v: 'aac', mov: 'aac', mkv: 'aac', avi: 'mp3',
+  webm: 'ogg', flv: 'aac', ogv: 'ogg', '3gp': 'aac', ts: 'aac',
+};
+
+/** MIME types for video containers (results list + downloads). */
+export const VIDEO_MIME_TYPES = {
+  mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', mkv: 'video/x-matroska',
+  avi: 'video/x-msvideo', webm: 'video/webm', flv: 'video/x-flv', ogv: 'video/ogg',
+  '3gp': 'video/3gpp', ts: 'video/mp2t',
+};
+
+/** Container for the denoised-audio intermediate of a video-out run. */
+export function intermediateAudioExt(containerExt) {
+  const audioExt = VIDEO_CONTAINER_AUDIO[(containerExt || '').toLowerCase()] || 'aac';
+  return { aac: 'm4a', mp3: 'mp3', ogg: 'ogg' }[audioExt] || 'm4a';
+}
+
+/**
+ * Mux an already-encoded audio track with a copied video stream.
+ * Deliberately filter-free: `-c:v copy` combined with `-af` traps the pinned
+ * wasm core (verified live), so video-out always runs as denoise-then-mux.
+ */
+export function buildRemux({ videoIn, audioIn, outName }) {
+  return ['-i', videoIn, '-i', audioIn, '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', '-shortest', '-y', outName];
+}
+
+/** Above this many seconds of audio, warn that the run will take a while. */
+export const LONG_DENOISE_WARN_SECS = 600;
+/** Preview snippet length (seconds). */
+export const DENOISE_PREVIEW_SECS = 8;
+
+function clampNum(v, lo, hi, fallback) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(lo, Math.min(hi, n));
+}
+
+/**
+ * Build just the `-af` chain for noise cleanup (unit-testable on its own).
+ * asendcmd times are absolute file times unless `seekBase` shifts them
+ * (used when a `-ss` preview window moves the filter timeline).
+ */
+export function denoiseChain({
+  highpass = 80, lowpass = 0,
+  nr = 12, nf = -25, rf = -50, tn = false, nt = 'white',
+  listenRemoved = false,
+  profileStart = null, profileEnd = null, seekBase = 0,
+  normalize = false,
+} = {}) {
+  const parts = [];
+  if (highpass > 0) parts.push(`highpass=f=${Math.round(highpass)}`);
+  if (lowpass > 0) parts.push(`lowpass=f=${Math.round(lowpass)}`);
+  const cleanNt = NOISE_TYPES.includes(nt) ? nt : 'white';
+  parts.push(
+    `afftdn=nr=${r3(clampNum(nr, 0.01, 97, 12))}` +
+    `:nf=${r3(clampNum(nf, -80, -20, -25))}` +
+    `:rf=${r3(clampNum(rf, -80, -20, -50))}` +
+    `:tn=${tn ? 1 : 0}:nt=${cleanNt}` +
+    (listenRemoved ? ':om=n' : '')
+  );
+  if (normalize && !listenRemoved) parts.push('loudnorm=I=-16:TP=-1.5:LRA=11');
+  const chain = parts.join(',');
+  if (profileStart != null && profileEnd != null && profileEnd > profileStart) {
+    const rel = (t) => r3(Math.max(0, t - (seekBase || 0)));
+    return `asendcmd=${rel(profileStart)} afftdn sn start,asendcmd=${rel(profileEnd)} afftdn sn stop,${chain}`;
+  }
+  return chain;
+}
+
+/**
+ * Full denoise command: audio in, audio out. Video inputs take the proven
+ * extract-style path (`-vn -map 0:a:0`); video-out is orchestrated as two
+ * passes in the UI (denoise audio, then buildRemux) because `-c:v copy`
+ * combined with `-af` traps the pinned wasm core.
+ * previewFrom/previewLen render a snippet instead of the whole file.
+ */
+export function buildDenoise({
+  inName, outName,
+  highpass = 80, lowpass = 0,
+  nr = 12, nf = -25, rf = -50, tn = false, nt = 'white',
+  listenRemoved = false,
+  profileStart = null, profileEnd = null,
+  normalize = false,
+  outExt = 'mp3', bitrate = 192,
+  isVideo = false,
+  previewFrom = null, previewLen = null,
+}) {
+  const chain = denoiseChain({
+    highpass, lowpass, nr, nf, rf, tn, nt, listenRemoved,
+    profileStart, profileEnd, seekBase: previewFrom || 0, normalize,
+  });
+  const args = [];
+  if (previewFrom != null && previewLen != null) {
+    args.push('-ss', r3(Math.max(0, previewFrom)), '-t', r3(Math.max(0.5, previewLen)));
+  }
+  args.push('-i', inName);
+  if (isVideo) args.push('-vn', '-map', '0:a:0');
+  args.push(...codecArgs(outExt, bitrate));
+  args.push('-af', chain, '-y', outName);
+  return args;
+}
+
 export const TOOLS = [
   { id: 'cut', label: '✂️ Cut' },
   { id: 'merge', label: '🔗 Merge', needsFiles: 2 },
@@ -216,6 +359,7 @@ export const TOOLS = [
   { id: 'speed', label: '⏩ Speed & Pitch' },
   { id: 'extract', label: '🎬 Extract Audio', needsVideo: true },
   { id: 'silence', label: '🤫 Silence Trim' },
+  { id: 'denoise', label: '🔇 Noise Cleanup' },
   { id: 'reverse', label: '⏪ Reverse' },
   { id: 'tags', label: '🏷 Metadata', needsTaggable: true },
 ];

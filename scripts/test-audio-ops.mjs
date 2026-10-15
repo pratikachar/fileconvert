@@ -5,9 +5,13 @@
 
 import {
   buildTrim, buildConcat, concatList, buildFade, buildNormalize, buildSpeed, buildPitch,
-  buildExtractAudio, buildSilenceTrim, buildReverse, buildTags, atempoChain, codecArgs,
+  buildExtractAudio, buildSilenceTrim, buildReverse, buildTags, buildDenoise, buildRemux, denoiseChain,
+  DENOISE_PRESETS, VIDEO_CONTAINER_AUDIO, VIDEO_MIME_TYPES, intermediateAudioExt,
+  AUDIO_WARN_BYTES, AUDIO_HARD_BYTES, classifyAudioSize,
+  atempoChain, codecArgs,
   canLosslessTrim, isSupportedInput, isVideoExt, isTaggable, extOf, r3, MP3_FRAME_SAMPLES,
 } from '../src/audio/ops.js';
+import { isWasmTrapError } from '../src/converters/media.js';
 import { computePeaks, computePeaksFromPcm, frameSnap, formatTime, timeAtX, xAtTime } from '../src/audio/waveform.js';
 
 let pass = 0;
@@ -144,6 +148,76 @@ check('flac codec', has(codecArgs('flac'), '-c:a', 'flac'));
   check('formatTime', formatTime(75.5) === '1:15.500');
   check('timeAtX clamp', timeAtX(-5, 100, 10) === 0 && timeAtX(200, 100, 10) === 10);
   check('xAtTime clamp', xAtTime(5, 100, 10) === 50 && xAtTime(-1, 100, 10) === 0);
+}
+
+// --- denoise ---
+{
+  // preset table sanity: every preset stays inside safe, measured ranges
+  for (const [id, p] of Object.entries(DENOISE_PRESETS)) {
+    check(`denoise preset ${id} nr in range`, p.nr >= 1 && p.nr <= 30);
+    check(`denoise preset ${id} nf in range`, p.nf >= -50 && p.nf <= -15);
+    check(`denoise preset ${id} rf in range`, p.rf >= -80 && p.rf <= -20);
+    check(`denoise preset ${id} track off`, p.tn === false);
+  }
+  // standard chain shape (mirrors the probe-verified command)
+  const c = denoiseChain({ highpass: 80, nr: 12, nf: -25, rf: -50, tn: false, nt: 'white' });
+  check('denoise chain order', c === 'highpass=f=80,afftdn=nr=12:nf=-25:rf=-50:tn=0:nt=white');
+  // profile commands use absolute times, shifted by the preview seek base
+  const pc = denoiseChain({ nr: 15, nf: -25, profileStart: 62, profileEnd: 65 });
+  check('denoise profile commands', pc.startsWith('asendcmd=62 afftdn sn start,asendcmd=65 afftdn sn stop,') && pc.includes('afftdn=nr=15'));
+  const pc2 = denoiseChain({ nr: 15, nf: -25, profileStart: 62, profileEnd: 65, seekBase: 60 });
+  check('denoise profile times shift with preview seek', pc2.startsWith('asendcmd=2 afftdn sn start,asendcmd=5 afftdn sn stop,'));
+  // hear-removed mode + loudness interplay
+  const om = denoiseChain({ nr: 12, listenRemoved: true, normalize: true });
+  check('denoise om=n present', om.includes(':om=n'));
+  check('denoise normalize skipped for noise-only output', !om.includes('loudnorm'));
+  const norm = denoiseChain({ nr: 12, normalize: true });
+  check('denoise normalize appended', norm.endsWith(',loudnorm=I=-16:TP=-1.5:LRA=11'));
+  // invalid noise type falls back to white
+  check('denoise bad nt falls back', denoiseChain({ nt: 'banana' }).includes('nt=white'));
+  // full command: audio
+  const a = buildDenoise({ inName: 'in.wav', outName: 'out.mp3', outExt: 'mp3', bitrate: 192 });
+  check('denoise audio encodes', has(a, '-i', 'in.wav', '-af', '-c:a', 'libmp3lame', '-y', 'out.mp3'));
+  check('denoise audio has no maps', !a.includes('-map') && !a.includes('-c:v'));
+  // video input takes the extract-style audio path (video-out is two-pass via buildRemux)
+  const va = buildDenoise({ inName: 'in.mp4', outName: 'out.mp3', outExt: 'mp3', isVideo: true });
+  check('denoise from video drops video stream', has(va, '-vn', '-map', '0:a:0') && !va.includes('-c:v'));
+  // mux step for video-out
+  const mx = buildRemux({ videoIn: 'v.mp4', audioIn: 'a.m4a', outName: 'out.mp4' });
+  check('remux maps + copies', has(mx, '-i', 'v.mp4', '-i', 'a.m4a', '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', '-shortest', '-y', 'out.mp4'));
+  check('remux has no filters', !mx.includes('-af') && !mx.includes('-c:v'));
+  // preview window seeks before input
+  const pv = buildDenoise({ inName: 'in.wav', outName: 'out.mp3', previewFrom: 60, previewLen: 8 });
+  check('denoise preview seeks', has(pv, '-ss', '60', '-t', '8', '-i', 'in.wav'));
+  check('denoise preview seek precedes input', pv.indexOf('-ss') < pv.indexOf('-i'));
+  // video mime lookup for results/downloads
+  check('denoise video mime mp4', VIDEO_MIME_TYPES.mp4 === 'video/mp4');
+  check('denoise video mime webm', VIDEO_MIME_TYPES.webm === 'video/webm');
+  // webm maps to vorbis: libopus encoder traps the pinned core (verified live)
+  check('denoise webm avoids libopus', VIDEO_CONTAINER_AUDIO.webm === 'ogg' && VIDEO_CONTAINER_AUDIO.mp4 === 'aac');
+  // intermediates are real demuxable containers (extensionless temp files break ffmpeg)
+  check('denoise intermediate mp4', intermediateAudioExt('mp4') === 'm4a');
+  check('denoise intermediate webm', intermediateAudioExt('webm') === 'ogg');
+  check('denoise intermediate avi', intermediateAudioExt('avi') === 'mp3');
+}
+
+// --- upload size policy ---
+{
+  check('size ok small', classifyAudioSize(1024) === 'ok');
+  check('size ok zero/NaN', classifyAudioSize(0) === 'ok' && classifyAudioSize('x') === 'ok');
+  check('size warn boundary', classifyAudioSize(AUDIO_WARN_BYTES) === 'ok' && classifyAudioSize(AUDIO_WARN_BYTES + 1) === 'warn');
+  check('size refuse boundary', classifyAudioSize(AUDIO_HARD_BYTES) === 'warn' && classifyAudioSize(AUDIO_HARD_BYTES + 1) === 'refuse');
+}
+
+// --- wasm trap classification (engine recovery only fires on these) ---
+{
+  check('trap: memory access', isWasmTrapError(new Error('RuntimeError: memory access out of bounds')) === true);
+  check('trap: OOM', isWasmTrapError('out of memory') === true);
+  check('trap: abort', isWasmTrapError('Aborted()') === true);
+  check('no trap: bad args', isWasmTrapError(new Error('Invalid argument')) === false);
+  check('no trap: missing file', isWasmTrapError('ffmpeg://whatever: No such file or directory') === false);
+  check('no trap: exit code', isWasmTrapError(new Error('FFmpeg exited with code 1.')) === false);
+  check('no trap: wrapped trap text stays trap', isWasmTrapError(new Error('FFmpeg command failed: RuntimeError: memory access out of bounds')) === true);
 }
 
 console.log(`${pass} checks passed, ${fails.length} failed`);

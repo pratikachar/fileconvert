@@ -13,6 +13,8 @@ let ffmpegLoaded = false;
 let ffmpegLoading = false;
 let progressSink = null;
 let nameSeq = 0;
+/** Ring buffer of recent ffmpeg stderr lines, so failures can quote the real cause. */
+const recentLogs = [];
 
 /**
  * Build a unique, filesystem-safe name for FFmpeg's in-memory FS.
@@ -47,6 +49,8 @@ export async function getFFmpeg(onProgress = () => {}) {
     // Log FFmpeg output for debugging
     ffmpeg.on('log', ({ message }) => {
       console.log('[FFmpeg]', message);
+      recentLogs.push(message);
+      if (recentLogs.length > 200) recentLogs.shift();
     });
 
     const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
@@ -80,6 +84,35 @@ export async function getFFmpeg(onProgress = () => {}) {
 }
 
 /**
+ * True when the error is a wasm-engine trap (not an ordinary bad-arguments or
+ * missing-file failure). Pure and Node-testable.
+ */
+export function isWasmTrapError(err) {
+  const msg = String((err && err.message) || err || '');
+  if (/No such file|Invalid (argument|data)|not found|exited with code/i.test(msg)) return false;
+  return /memory access out of bounds|out of memory|RuntimeError|abort/i.test(msg);
+}
+
+/**
+ * A wasm trap (e.g. "memory access out of bounds") bricks the shared instance:
+ * every later exec fails the same way until the core is reloaded. Detect it and
+ * drop the instance so the next call transparently loads a fresh one instead of
+ * failing forever. Ordinary command failures (bad args, missing files) never match.
+ * Returns true when a reset happened (caller may retry once).
+ */
+function noteFFmpegCrash(err) {
+  if (!isWasmTrapError(err)) return false;
+  ffmpeg = null;
+  ffmpegLoaded = false;
+  return true;
+}
+
+/** Last few ffmpeg stderr lines, for quoting the real cause in errors. */
+function ffmpegTail() {
+  return recentLogs.slice(-3).join(' / ').slice(-160);
+}
+
+/**
  * Run one FFmpeg command against the shared engine.
  * Writes `inputs`, execs `args`, reads `outputs`, then always deletes the
  * temp files (matters when a tool writes a dozen intermediates).
@@ -91,7 +124,7 @@ export async function getFFmpeg(onProgress = () => {}) {
  * @param {function} o.onProgress - (fraction 0..1, message) => void
  * @returns {Promise<Array<{name:string, bytes:Uint8Array, type:string}>>}
  */
-export async function runFFmpeg({ args, inputs = [], outputs = [], onProgress = () => {} }) {
+export async function runFFmpeg({ args, inputs = [], outputs = [], onProgress = () => {}, _retried = false }) {
   const ff = await getFFmpeg((p, m) => onProgress(p * 0.3, m));
   const prevSink = progressSink;
   progressSink = (ratio) => onProgress(0.3 + ratio * 0.65);
@@ -99,11 +132,20 @@ export async function runFFmpeg({ args, inputs = [], outputs = [], onProgress = 
   const written = inputs.map((i) => i.name);
   try {
     for (const input of inputs) {
-      const data = input.data !== undefined ? input.data : await fetchFile(input.file);
+      const src = input.data !== undefined ? input.data : await fetchFile(input.file);
+      // The worker transfer detaches input buffers, so always send a copy:
+      // reusing a buffer (e.g. on retry) would post a detached ArrayBuffer.
+      const data = src.slice ? src.slice() : src;
       await ff.writeFile(input.name, data);
     }
 
-    await ff.exec(args);
+    // exec() resolves with the exit code: a nonzero code means ffmpeg gave up
+    // (bad combo, unreadable input...) and any partial output must NOT be
+    // presented as a success.
+    const code = await ff.exec(args);
+    if (code !== 0) {
+      throw new Error(`FFmpeg exited with code ${code}. The codec/format combination may not be supported in the browser build.`);
+    }
 
     const results = [];
     for (const out of outputs) {
@@ -117,8 +159,16 @@ export async function runFFmpeg({ args, inputs = [], outputs = [], onProgress = 
     onProgress(1, 'Done!');
     return results;
   } catch (err) {
+    // A trap poisons the shared instance; retry once on a transparently
+    // reloaded core instead of failing forever. Bounded by _retried.
+    if (!_retried && noteFFmpegCrash(err)) {
+      progressSink = prevSink;
+      return runFFmpeg({ args, inputs, outputs, onProgress, _retried: true });
+    }
+    noteFFmpegCrash(err);
+    const tail = ffmpegTail();
     throw new Error(
-      `FFmpeg command failed: ${(err && err.message) || err}. ` +
+      `FFmpeg command failed${tail ? ' - ' + tail : ''}. ${(err && err.message) || err} ` +
       'The codec/format combination may not be supported in the browser build.'
     );
   } finally {
@@ -201,9 +251,14 @@ export async function convertMedia(file, outputExt, options = {}) {
   const codecArgs = getFFmpegArgs(inputExt, outputExt);
 
   try {
-    await ffmpeg.exec(['-i', inputFileName, ...codecArgs, '-y', outputFileName]);
+    const code = await ffmpeg.exec(['-i', inputFileName, ...codecArgs, '-y', outputFileName]);
+    if (code !== 0) {
+      throw new Error(`FFmpeg exited with code ${code}. The format combination may not be supported.`);
+    }
   } catch (err) {
-    throw new Error(`Conversion failed: ${err.message}. The format combination may not be supported.`);
+    noteFFmpegCrash(err);
+    const tail = ffmpegTail();
+    throw new Error(`Conversion failed${tail ? ' - ' + tail : ''}: ${err.message}. The format combination may not be supported.`);
   } finally {
     progressSink = prevSink;
   }
@@ -233,4 +288,26 @@ export async function convertMedia(file, outputExt, options = {}) {
  */
 export function isFFmpegLoaded() {
   return ffmpegLoaded;
+}
+
+/**
+ * Check if FFmpeg is currently loading (core downloading).
+ */
+export function isFFmpegLoading() {
+  return ffmpegLoading;
+}
+
+/**
+ * Drop the shared engine (terminating its worker when possible) so the next
+ * call transparently loads a fresh one. Used by Cancel and by trap recovery.
+ * Safe to call any time, even mid-run: in-flight calls fail fast and the UI
+ * discards their late results via its own run ids.
+ */
+export function resetFFmpegEngine() {
+  try {
+    if (ffmpeg && typeof ffmpeg.terminate === 'function') ffmpeg.terminate();
+  } catch { /* already dead */ }
+  ffmpeg = null;
+  ffmpegLoaded = false;
+  ffmpegLoading = false;
 }

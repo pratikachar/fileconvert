@@ -3,7 +3,7 @@
  * Everything runs client-side on the shared FFmpeg singleton.
  */
 
-import { runFFmpeg, fsName } from '../converters/media.js';
+import { runFFmpeg, fsName, getFFmpeg, resetFFmpegEngine, isFFmpegLoaded, isFFmpegLoading } from '../converters/media.js';
 import * as ops from './ops.js';
 import {
   computePeaks,
@@ -41,6 +41,10 @@ let player = null;
 let resultPlayer = null;
 let rafId = null;
 let toastTimer = null;
+let runSeq = 0;
+let liveRunId = 0;
+let elapsedTimer = null;
+let elapsedStart = 0;
 
 function toast(msg) {
   let t = document.getElementById('app-toast');
@@ -81,6 +85,67 @@ function fmtOutExt() {
 
 function bitrate() {
   return parseInt($('audio-bitrate').value, 10) || 192;
+}
+
+function engineNote(msg) {
+  const el = $('audio-engine-note');
+  if (el) el.textContent = msg;
+}
+
+/** Download the ~31 MB core in the background so the first Process/Preview is fast. */
+async function preloadAudioEngine() {
+  if (isFFmpegLoaded()) {
+    engineNote('Engine ready - processing starts instantly.');
+    return;
+  }
+  engineNote('Preparing the audio engine in the background (~31 MB, once per browser)…');
+  try {
+    await getFFmpeg((frac) => {
+      // getFFmpeg reports coarse stages (0/10/30), not bytes - show words, not a fake %.
+      engineNote(`Preparing the audio engine… ${frac >= 30 ? 'almost ready' : frac >= 10 ? 'downloading core' : 'starting'}`);
+    });
+    engineNote('Engine ready - processing starts instantly.');
+    if (!document.getElementById('tab-content-audio').classList.contains('hidden')) {
+      toast('Audio engine ready.');
+    }
+  } catch (err) {
+    engineNote('');
+    console.warn('Engine preload failed (will retry on first use):', err);
+  }
+}
+
+function startElapsed() {
+  stopElapsed();
+  elapsedStart = Date.now();
+  const el = $('audio-elapsed');
+  if (el) el.textContent = '';
+  elapsedTimer = setInterval(() => {
+    const target = $('audio-elapsed');
+    if (target) target.textContent = `${Math.round((Date.now() - elapsedStart) / 1000)}s elapsed`;
+  }, 1000);
+}
+
+function stopElapsed() {
+  if (elapsedTimer) clearInterval(elapsedTimer);
+  elapsedTimer = null;
+  const el = $('audio-elapsed');
+  if (el) el.textContent = '';
+}
+
+/**
+ * Give up on the live run: drop the engine (its worker may be hung or
+ * poisoned - the next call reloads fresh), hide progress, re-enable the UI,
+ * and ignore whatever the abandoned run eventually resolves with.
+ */
+function cancelAudioRun() {
+  if (!liveRunId) return;
+  liveRunId = 0;
+  resetFFmpegEngine();
+  stopElapsed();
+  $('audio-progress').classList.add('hidden');
+  $('audio-run').disabled = false;
+  $('audio-cancel').classList.add('hidden');
+  toast('Run cancelled.');
 }
 
 // ============================================
@@ -162,6 +227,11 @@ export function setupAudioTab() {
 
   $('audio-run').addEventListener('click', runTool);
   $('audio-clear-results').addEventListener('click', clearResults);
+  $('audio-cancel').addEventListener('click', cancelAudioRun);
+
+  // Warm up the engine on first tab open so Process/Preview rarely pay the
+  // ~31 MB first-load cost at click time. One attempt only, silent unless it fails.
+  document.getElementById('tab-btn-audio').addEventListener('click', preloadAudioEngine, { once: true });
 
   // Tapping anywhere else cancels an armed delete.
   document.addEventListener('pointerdown', (e) => {
@@ -205,8 +275,21 @@ export function setupAudioTab() {
 }
 
 function updateBitrateVisibility() {
-  const ext = fmtOutExt();
+  const ext = effectiveOutExt();
   $('audio-bitrate-group').classList.toggle('hidden', ['wav', 'flac'].includes(ext));
+}
+
+/** Output extension actually used (denoise video mode keeps the container). */
+function denoiseVideoOut() {
+  const el = $('ao-dn-vout');
+  return !el || el.value === 'video';
+}
+
+function effectiveOutExt() {
+  const item = activeFile();
+  if (state.tool === 'denoise' && item && item.isVideo && denoiseVideoOut()) return item.ext;
+  if (state.tool === 'tags' && item) return item.ext;
+  return fmtOutExt();
 }
 
 function resizeCanvas() {
@@ -224,12 +307,21 @@ function resizeCanvas() {
 function addFiles(list) {
   const accepted = [];
   const rejected = [];
+  let tooBig = 0;
+  let hefty = 0;
   for (const file of list) {
     const ext = ops.extOf(file.name);
     if (!ops.isSupportedInput(ext)) {
       rejected.push(file.name);
       continue;
     }
+    // The wasm filesystem transiently holds ~2-3x the file size; huge files
+    // hang or OOM the tab with no error. Refuse those, warn on merely big ones.
+    if (ops.classifyAudioSize(file.size) === 'refuse') {
+      tooBig++;
+      continue;
+    }
+    if (ops.classifyAudioSize(file.size) === 'warn') hefty++;
     if (state.files.length >= MAX_FILES) break;
     accepted.push(file);
   }
@@ -251,6 +343,8 @@ function addFiles(list) {
   }
 
   if (rejected.length) toast(`Unsupported: ${rejected.slice(0, 3).join(', ')}`);
+  if (tooBig) toast(`Skipped ${tooBig} file(s) over 500 MB - too big for in-browser processing. Trim it first.`);
+  if (hefty) toast('Large file(s) loaded - processing needs time and memory. The 8s preview is instant.');
   if (state.files.length >= MAX_FILES && accepted.length) toast(`Limit is ${MAX_FILES} files`);
   if (!accepted.length) return;
 
@@ -684,6 +778,9 @@ function renderPanel() {
   const maxAttr = dur ? ops.r3(dur) : '0';
   const losslessOk = item ? ops.canLosslessTrim(item.ext, fmtOutExt()) : false;
   const t = state.tool;
+  // The denoise video mode disables the shared format select; restore it here
+  // so no other tool inherits the disabled state.
+  $('audio-out-ext').disabled = false;
 
   if (t === 'cut') {
     el.innerHTML = `
@@ -829,6 +926,87 @@ function renderPanel() {
     return;
   }
 
+  if (t === 'denoise') {
+    const presets = Object.entries(ops.DENOISE_PRESETS)
+      .map(([id, p]) => `<option value="${id}"${id === 'standard' ? ' selected' : ''}>${p.label} - ${p.desc}</option>`)
+      .join('');
+    const selLen = state.sel.end - state.sel.start;
+    const profOk = !!(item && item.duration && selLen >= 0.5 && selLen < item.duration * 0.5);
+    el.innerHTML = `
+      <label class="control-label" for="ao-dn-preset">Cleanup strength</label>
+      <select id="ao-dn-preset" class="form-select">${presets}</select>
+      <label class="control-inline"><input type="checkbox" id="ao-dn-profile"${profOk ? '' : ' disabled'} />
+        Use the waveform selection as the noise profile${profOk ? ` (${ops.r3(state.sel.start)}s - ${ops.r3(state.sel.end)}s)` : ' (drag a short noise-only part first)'}</label>
+      <p class="field-hint">Pick a stretch with ONLY background noise in it (room tone, no speech or music) - like a noise profile. Whole-file selections are rejected.</p>
+      ${item && item.isVideo ? `
+      <label class="control-label" for="ao-dn-vout">For this video, output</label>
+      <select id="ao-dn-vout" class="form-select">
+        <option value="video" selected>Same video with cleaned audio (.${item.ext})</option>
+        <option value="audio">Audio only (uses the format below)</option>
+      </select>` : ''}
+      <details class="au-advanced">
+        <summary>Advanced</summary>
+        <label class="control-label" for="ao-dn-nr">Strength (<span class="range-val" id="ao-dn-nrv">12 dB</span>)</label>
+        <input type="range" id="ao-dn-nr" min="1" max="30" step="1" value="12" />
+        <label class="control-label" for="ao-dn-nf">Noise floor (dB)</label>
+        <input type="number" id="ao-dn-nf" class="form-input" step="1" min="-50" max="-15" value="-25" />
+        <label class="control-label" for="ao-dn-rf">Residual floor (dB)</label>
+        <input type="number" id="ao-dn-rf" class="form-input" step="1" min="-80" max="-20" value="-50" />
+        <label class="control-label" for="ao-dn-nt">Noise type</label>
+        <select id="ao-dn-nt" class="form-select">
+          <option value="white" selected>White (hiss, fan, room tone)</option>
+          <option value="vinyl">Vinyl crackle</option>
+          <option value="shellac">Shellac crackle</option>
+        </select>
+        <label class="control-inline"><input type="checkbox" id="ao-dn-tn" /> Track changing noise (can weaken cleanup on short files)</label>
+        <label class="control-label" for="ao-dn-hp">Cut rumble below</label>
+        <select id="ao-dn-hp" class="form-select">
+          ${ops.HIGHPASS_CHOICES.map((f) => `<option value="${f}"${f === 80 ? ' selected' : ''}>${f === 0 ? 'Off' : f + ' Hz'}</option>`).join('')}
+        </select>
+        <label class="control-label" for="ao-dn-lp">Cut harsh highs above</label>
+        <select id="ao-dn-lp" class="form-select">
+          ${ops.LOWPASS_CHOICES.map((f) => `<option value="${f}"${f === 0 ? ' selected' : ''}>${f === 0 ? 'Off' : (f / 1000) + ' kHz'}</option>`).join('')}
+        </select>
+        <label class="control-inline"><input type="checkbox" id="ao-dn-norm" /> Normalize loudness after cleanup</label>
+      </details>
+      <label class="control-inline"><input type="checkbox" id="ao-dn-hear" /> Hear the removed noise instead (runs an 8s preview)</label>
+      <div class="editor-actions">
+        <button type="button" class="btn-secondary" id="ao-dn-preview">▶ Preview 8s</button>
+      </div>
+      ${dur && dur > ops.LONG_DENOISE_WARN_SECS ? `<p class="au-warn">⚠ ${Math.round(dur / 60)} min of audio - expect a few minutes of processing on phones. Try the 8s preview first.</p>` : ''}
+      <p class="field-hint">Best on steady noise (hiss, hum, fan). Crowd babble and music bleed will not clean well.</p>`;
+    const applyPreset = () => {
+      const p = ops.DENOISE_PRESETS[$('ao-dn-preset').value] || ops.DENOISE_PRESETS.standard;
+      $('ao-dn-nr').value = p.nr;
+      $('ao-dn-nrv').textContent = `${p.nr} dB`;
+      $('ao-dn-nf').value = p.nf;
+      $('ao-dn-rf').value = p.rf;
+      $('ao-dn-nt').value = p.nt;
+      $('ao-dn-tn').checked = p.tn;
+      $('ao-dn-hp').value = p.highpass;
+      $('ao-dn-lp').value = p.lowpass;
+    };
+    $('ao-dn-preset').addEventListener('change', applyPreset);
+    const markCustom = () => { $('ao-dn-preset').value = 'custom'; };
+    ['ao-dn-nf', 'ao-dn-rf', 'ao-dn-nt', 'ao-dn-tn', 'ao-dn-hp', 'ao-dn-lp'].forEach((id) => {
+      $(id).addEventListener('change', markCustom);
+    });
+    $('ao-dn-nr').addEventListener('input', () => {
+      $('ao-dn-nrv').textContent = `${$('ao-dn-nr').value} dB`;
+      markCustom();
+    });
+    if ($('ao-dn-vout')) {
+      const syncFmt = () => {
+        $('audio-out-ext').disabled = $('ao-dn-vout').value === 'video';
+        updateBitrateVisibility();
+      };
+      $('ao-dn-vout').addEventListener('change', syncFmt);
+      syncFmt();
+    }
+    $('ao-dn-preview').addEventListener('click', previewDenoise);
+    return;
+  }
+
   if (t === 'tags') {
     el.innerHTML = `
       <p class="field-hint">Rewrites ID3 tags without touching the audio data (stream copy). Output keeps the input format (<b>${item ? item.ext.toUpperCase() : ''}</b>).</p>
@@ -873,6 +1051,19 @@ function readPanel() {
   }
   if (t === 'speed') return { rate: num('ao-rate', 1), semitones: num('ao-pitch', 0) };
   if (t === 'silence') return { thresholdDb: num('ao-threshold', -45), minSilence: num('ao-minsil', 0.4), keepPad: num('ao-pad', 0.15) };
+  if (t === 'denoise') {
+    return {
+      preset: ($('ao-dn-preset') || {}).value || 'standard',
+      nr: num('ao-dn-nr', 12), nf: num('ao-dn-nf', -25), rf: num('ao-dn-rf', -50),
+      tn: !!(($('ao-dn-tn') || {}).checked),
+      nt: ($('ao-dn-nt') || {}).value || 'white',
+      highpass: num('ao-dn-hp', 80), lowpass: num('ao-dn-lp', 0),
+      profile: !!(($('ao-dn-profile') || {}).checked),
+      normalize: !!(($('ao-dn-norm') || {}).checked),
+      hear: !!(($('ao-dn-hear') || {}).checked),
+      videoOut: denoiseVideoOut(),
+    };
+  }
   if (t === 'tags') {
     return {
       tags: {
@@ -891,15 +1082,152 @@ function readPanel() {
 // ============================================
 // Run
 // ============================================
+/** Returns an error string when the denoise settings cannot run, else null. */
+function denoiseGuardrail(item, o) {
+  if (!o.profile) return null;
+  if (!item.duration) return 'Waveform unavailable - type exact times or pick a preset without the noise profile.';
+  const len = state.sel.end - state.sel.start;
+  if (!(len >= 0.5)) return 'Drag a noise-only stretch on the waveform first (at least half a second).';
+  if (len >= item.duration * 0.5) return 'That selection covers most of the file - pick a short noise-only stretch instead.';
+  return null;
+}
+
+/**
+ * Video-out denoising as two passes. The pinned core traps when `-c:v copy`
+ * meets `-af` in one command, so pass 1 denoises the audio alone (proven
+ * extract-style path) and pass 2 muxes with pure stream copy (no filters,
+ * no re-encode). Returns { res, mime, outName } like a single runFFmpeg call.
+ */
+async function runDenoiseVideo(item, o, { previewFrom = null, previewLen = null, listenRemoved = false, onProgress = () => {} } = {}) {
+  const br = bitrate();
+  const audioExt = ops.VIDEO_CONTAINER_AUDIO[item.ext] || 'aac';
+  const tmpExt = ops.intermediateAudioExt(item.ext);
+  const inName = fsName(`in.${item.ext}`);
+  const tmpName = fsName(`dn_tmp.${tmpExt}`);
+  const outName = fsName(`out.${item.ext}`);
+  const mime = ops.VIDEO_MIME_TYPES[item.ext] || 'video/mp4';
+  const chainOpts = {
+    highpass: o.highpass, lowpass: o.lowpass,
+    nr: o.nr, nf: o.nf, rf: o.rf, tn: o.tn, nt: o.nt,
+    listenRemoved,
+    profileStart: o.profile ? state.sel.start : null,
+    profileEnd: o.profile ? state.sel.end : null,
+    normalize: o.normalize, outExt: audioExt, bitrate: br, isVideo: true,
+  };
+  if (previewFrom != null && previewLen != null) {
+    chainOpts.previewFrom = previewFrom;
+    chainOpts.previewLen = previewLen;
+  }
+  const [tmp] = await runFFmpeg({
+    args: ops.buildDenoise({ inName, outName: tmpName, ...chainOpts }),
+    inputs: [{ name: inName, file: item.file }],
+    outputs: [{ name: tmpName, type: 'audio/' + tmpExt }],
+    onProgress: (f, m) => onProgress(f * 0.7, (m ? m + ' · ' : '') + 'Cleaning audio (1/2)'),
+  });
+  const [res] = await runFFmpeg({
+    args: ops.buildRemux({ videoIn: inName, audioIn: tmpName, outName }),
+    inputs: [{ name: inName, file: item.file }, { name: tmpName, data: tmp.bytes }],
+    outputs: [{ name: outName, type: mime }],
+    onProgress: (f, m) => onProgress(0.7 + f * 0.3, 'Muxing video (2/2)'),
+  });
+  return { res, mime, outName };
+}
+
+/** Runs the current denoise settings on a short window so users can hear it first. */
+async function previewDenoise() {
+  const item = activeFile();
+  if (!item) return;
+  const o = readPanel();
+  if (o.profile) {
+    const problem = denoiseGuardrail(item, o);
+    if (problem) { toast(problem); return; }
+  }
+  const useProfile = o.profile && !!item.duration;
+  let from = 0;
+  let len = Math.min(item.duration || ops.DENOISE_PREVIEW_SECS, ops.DENOISE_PREVIEW_SECS);
+  if (useProfile) {
+    from = Math.max(0, state.sel.start - 2);
+    len = Math.min((item.duration || from + 10) - from, (state.sel.end - state.sel.start) + 4, 12);
+  }
+  const videoMode = item.isVideo && o.videoOut;
+  const ext = videoMode ? item.ext : fmtOutExt();
+  const br = bitrate();
+  const audioMeta = ops.AUDIO_OUT_FORMATS.find((f) => f.ext === ext);
+  const mime = audioMeta ? audioMeta.mime : (ops.VIDEO_MIME_TYPES[ext] || 'application/octet-stream');
+
+  const progress = $('audio-progress');
+  const bar = $('audio-progress-bar');
+  const text = $('audio-progress-text');
+  progress.classList.remove('hidden');
+  bar.style.width = '0%';
+  text.textContent = 'Rendering preview…';
+  $('audio-run').disabled = true;
+  $('audio-cancel').classList.remove('hidden');
+  const myRun = ++runSeq;
+  liveRunId = myRun;
+  startElapsed();
+
+  try {
+    const inName = fsName(`in.${item.ext}`);
+    const outName = fsName(`preview.${ext}`);
+    let res;
+    if (videoMode) {
+      ({ res } = await runDenoiseVideo(item, o, {
+        previewFrom: from, previewLen: len, listenRemoved: o.hear,
+        onProgress: (frac, msg) => {
+          bar.style.width = `${Math.max(0, Math.min(100, Math.round(frac * 100)))}%`;
+          text.textContent = msg || 'Rendering preview…';
+        },
+      }));
+    } else {
+      const args = ops.buildDenoise({
+        inName, outName, highpass: o.highpass, lowpass: o.lowpass,
+        nr: o.nr, nf: o.nf, rf: o.rf, tn: o.tn, nt: o.nt,
+        listenRemoved: o.hear,
+        profileStart: useProfile ? state.sel.start : null,
+        profileEnd: useProfile ? state.sel.end : null,
+        normalize: o.normalize, outExt: ext, bitrate: br,
+        isVideo: item.isVideo,
+        previewFrom: from, previewLen: len,
+      });
+      const [r] = await runFFmpeg({
+        args,
+        inputs: [{ name: inName, file: item.file }],
+        outputs: [{ name: outName, type: mime }],
+        onProgress: (frac, msg) => {
+          bar.style.width = `${Math.max(0, Math.min(100, Math.round(frac * 100)))}%`;
+          text.textContent = msg || 'Rendering preview…';
+        },
+      });
+      res = r;
+    }
+    if (liveRunId !== myRun) return; // cancelled while finishing: discard result, stay quiet
+    addResult(`${baseName(item.name)}-denoise-preview.${ext}`, res.bytes, mime);
+    text.textContent = 'Done!';
+    bar.style.width = '100%';
+    toast(o.hear ? 'That is the removed noise - Process cleans the whole file.' : 'Preview rendered - Process runs the whole file.');
+  } catch (err) {
+    if (liveRunId !== myRun) return; // cancelled - cancelAudioRun already reported
+    console.error('Denoise preview failed:', err);
+    toast((err && err.message ? err.message : String(err)).slice(0, 200));
+    progress.classList.add('hidden');
+  } finally {
+    stopElapsed();
+    $('audio-cancel').classList.add('hidden');
+    $('audio-run').disabled = false;
+    if (liveRunId === myRun) liveRunId = 0;
+  }
+}
+
 async function runTool() {
   const item = activeFile();
   if (!item) return;
 
   const o = readPanel();
-  const outExt = state.tool === 'tags' ? item.ext : fmtOutExt();
+  const outExt = effectiveOutExt();
   const br = bitrate();
-  const meta = ops.AUDIO_OUT_FORMATS.find((f) => f.ext === outExt);
-  const mime = (meta ? meta.mime : 'application/octet-stream');
+  const audioMeta = ops.AUDIO_OUT_FORMATS.find((f) => f.ext === outExt);
+  const mime = audioMeta ? audioMeta.mime : (ops.VIDEO_MIME_TYPES[outExt] || 'application/octet-stream');
   const base = baseName(item.name);
 
   const progress = $('audio-progress');
@@ -910,12 +1238,17 @@ async function runTool() {
   bar.style.width = '0%';
   text.textContent = 'Preparing…';
   runBtn.disabled = true;
+  $('audio-cancel').classList.remove('hidden');
+  const myRun = ++runSeq;
+  liveRunId = myRun;
+  startElapsed();
 
   try {
     let args = [];
     let inputs = [];
     let outName = '';
     let downloadName = `${base}-${state.tool}.${outExt}`;
+    let precomputedRes = null;
 
     if (state.tool === 'merge') {
       const mergeItems = state.files.filter((f) => !f.isVideo);
@@ -955,6 +1288,42 @@ async function runTool() {
         args = ops.buildExtractAudio({ inName, outName, outExt, bitrate: br });
       } else if (state.tool === 'silence') {
         args = ops.buildSilenceTrim({ inName, outName, thresholdDb: o.thresholdDb, minSilence: o.minSilence, keepPad: o.keepPad, outExt, bitrate: br });
+      } else if (state.tool === 'denoise') {
+        const videoMode = item.isVideo && o.videoOut;
+        const guard = denoiseGuardrail(item, o);
+        if (guard) {
+          toast(guard);
+          progress.classList.add('hidden');
+          stopElapsed();
+          $('audio-cancel').classList.add('hidden');
+          runBtn.disabled = false;
+          liveRunId = 0;
+          return;
+        }
+        if (item.duration && item.duration > ops.LONG_DENOISE_WARN_SECS) {
+          toast(`Long file (${formatTime(item.duration)}) - this can take a few minutes.`);
+        }
+        downloadName = `${base}-denoised.${outExt}`;
+        if (videoMode) {
+          const r = await runDenoiseVideo(item, o, {
+            listenRemoved: false,
+            onProgress: (frac, msg) => {
+              bar.style.width = `${Math.max(0, Math.min(100, Math.round(frac * 100)))}%`;
+              text.textContent = msg || 'Working…';
+            },
+          });
+          precomputedRes = r.res;
+        } else {
+          args = ops.buildDenoise({
+            inName, outName, highpass: o.highpass, lowpass: o.lowpass,
+            nr: o.nr, nf: o.nf, rf: o.rf, tn: o.tn, nt: o.nt,
+            listenRemoved: false,
+            profileStart: o.profile ? state.sel.start : null,
+            profileEnd: o.profile ? state.sel.end : null,
+            normalize: o.normalize, outExt, bitrate: br,
+            isVideo: item.isVideo,
+          });
+        }
       } else if (state.tool === 'reverse') {
         args = ops.buildReverse({ inName, outName, outExt, bitrate: br });
       } else if (state.tool === 'tags') {
@@ -963,25 +1332,34 @@ async function runTool() {
       }
     }
 
-    const [res] = await runFFmpeg({
-      args,
-      inputs,
-      outputs: [{ name: outName, type: mime }],
-      onProgress: (frac, msg) => {
-        bar.style.width = `${Math.max(0, Math.min(100, Math.round(frac * 100)))}%`;
-        text.textContent = msg || 'Working…';
-      },
-    });
+    let res = precomputedRes;
+    if (!res) {
+      const [r] = await runFFmpeg({
+        args,
+        inputs,
+        outputs: [{ name: outName, type: mime }],
+        onProgress: (frac, msg) => {
+          bar.style.width = `${Math.max(0, Math.min(100, Math.round(frac * 100)))}%`;
+          text.textContent = msg || 'Working…';
+        },
+      });
+      res = r;
+    }
 
+    if (liveRunId !== myRun) return; // cancelled while finishing: discard result, stay quiet
     addResult(downloadName, res.bytes, mime);
     text.textContent = 'Done!';
     bar.style.width = '100%';
   } catch (err) {
+    if (liveRunId !== myRun) return; // cancelled - cancelAudioRun already reported
     console.error('Audio tool failed:', err);
     toast((err && err.message ? err.message : String(err)).slice(0, 200));
     progress.classList.add('hidden');
   } finally {
+    stopElapsed();
+    $('audio-cancel').classList.add('hidden');
     runBtn.disabled = false;
+    if (liveRunId === myRun) liveRunId = 0;
   }
 }
 

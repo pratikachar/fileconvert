@@ -896,6 +896,7 @@
                 MP3 · WAV · M4A · AAC · OGG · OPUS · FLAC · WMA · AIFF - plus MP4/MOV/MKV/AVI to extract audio
               </div>
               <p class="picker-hint">☁️ Prefer cloud storage? In the file picker tap <b>⋮</b> and switch on <b>Google Drive</b>, <b>Dropbox</b> or <b>OneDrive</b>.</p>
+              <p id="audio-engine-note" class="field-hint"></p>
             </div>
             <input type="file" id="audio-file-input" class="file-input" multiple accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.ogg,.oga,.opus,.flac,.wma,.aiff,.mp4,.mov,.m4v,.mkv,.avi,.webm,.flv,.3gp,.ogv" />
           </div>
@@ -946,6 +947,10 @@
               <div id="audio-progress" class="progress-section hidden">
                 <div class="progress-bar-track"><div id="audio-progress-bar" class="progress-bar-fill" style="width:0%"></div></div>
                 <p id="audio-progress-text" class="progress-text">Working…</p>
+                <div class="audio-progress-row">
+                  <span id="audio-elapsed" class="audio-time"></span>
+                  <button id="audio-cancel" class="btn-secondary btn-mini hidden">✕ Cancel run</button>
+                </div>
               </div>
             </div>
 
