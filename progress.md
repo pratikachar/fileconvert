@@ -4,7 +4,7 @@
 Delivered in phases, each one tested + committed separately. Rule for all phases:
 no paid API, no server, no LLM, nothing leaves the device.
 - **Phase 1 - DONE**: Trim Video + video output containers in the Audio tab.
-- **Phase 2 - NEXT**: Magic Remove via self-hosted OpenCV Telea inpaint.
+- **Phase 2 - DONE**: Magic Remove via OpenCV Telea inpaint (OpenCV 4.11, self-hosted, 5.6/255 gradient accuracy).
 - **Phase 3**: Audio extras - voice recorder (MediaRecorder), karaoke vocal reducer, ringtone maker, silence splitter, BPM tap counter.
 - **Phase 4**: Video utilities - lossless trim (shipped in P1), mute, rotate/flip, speed, WhatsApp compressor, extract frames, GIF->video, images->slideshow, replace audio track.
 - **Phase 5**: Image extras - EXIF viewer, watermark, meme presets, circle crop, Instagram grid splitter, palette extractor, collage maker, manual pixelate.
@@ -357,7 +357,19 @@ Asked for as "cut videos + video outputs in the Audio tab". Shipped as the 11th 
 - Verified: build green; **132 Node checks** (21 new: container matrix, argv shape, optional mapping, NaN guards, TOOLS/mime registration); **headless-Edge 13/13** with a synthesized 12 s MP4 - trim 2s..6s produced a **4.02 s** `video/mp4` result, audio-only mode produced an MP3, MP4->WEBM was refused with the UI left usable, and the pre-existing audio Cut on the same video still worked. 0 page errors.
 - Bug caught by the E2E: the select change handler still called the renamed `isVideoOut()` -> ReferenceError silently killed the panel re-render (hint went stale). Fixed to `vtrimVideoOut()`.
 
-## Next Steps (Phase 2)
+## PHASE 2: Magic Remove returns (OpenCV.js Telea inpaint, free + offline)
+Five earlier attempts failed and were removed. Root cause found this time, and it was **not** "OpenCV can't do this":
+- `@techstark/opencv-js@4.10.0-release.1` really is a CORE-only build (`cv.inpaint === undefined`, verified at runtime).
+- **`4.11.0-release.1` ships the photo module**: probed live in headless Edge -> `cv.inpaint` = function, `cv.INPAINT_TELEA`/`INPAINT_NS` = numbers, v4.11.0, loads in ~200 ms.
+- Lesson recorded in the module header: the wasm exports live *inside* the embedded base64 blob, so grepping the JS for `inpaint` proves nothing. Always assert `typeof cv.inpaint === 'function'` at runtime.
+- Shipping method follows the existing ONNX convention: `scripts/copy-opencv-wasm.mjs` copies `dist/opencv.js` (10.9 MB) to `public/cv/` (gitignored) and is wired into `dev` + `build`, so the repo stays light and the engine is same-origin (no COEP problem, no CDN).
+- **UI**: new `🩹 Magic Remove` editor tool. Paint the object with a round brush (touch-friendly), live "Marked N% of the image" readout that warns above 12%, brush size, fill radius, mask-growth dilation, Telea/Navier-Stokes switch, Clear mask, Cancel/undo.
+- Correctness details that broke the old attempts, now handled: await the UMD factory promise then poll for bindings; RGBA->RGB via `cvtColor` before `inpaint` (it rejects 4 channels); write back into the original RGBA buffer so **alpha survives**; `Mat.delete()` in a `finally` so repeated runs cannot leak the wasm heap.
+- **Quantitative proof (not just "it didn't crash")**: on an analytic horizontal+vertical gradient with a 50x50 painted block, Telea lands within **5.6/255 mean error** of the true background, and every pixel **outside** the mask is byte-identical.
+- Verified: build green; 9 new Node checks (`scripts/test-magic-remove.mjs`) + 132 audio checks; **headless-Edge 14/14** incl. real mouse-stroke painting (marked 6.2%), fill + undo round-trip, NS method, alpha=128 preserved, dilation ring, polite refusal on an empty mask. 0 page errors.
+- Bug found by the E2E: `setPointerCapture` can throw (synthetic/ended pointers) and it aborted the rest of the handler, so the mask view and coverage readout never updated. Now wrapped in try/catch and the readout refreshes on stroke end.
+
+## Next Steps (Phase 3)
 - [ ] Live-test Extract Audio with a real MP4/MKV on desktop + phone
 - [ ] Test Merge with mixed sources (mp3 + m4a + wav) and normalize on a quiet phone recording
 - [ ] Long-file test (>20 min) to confirm the FFmpeg PCM waveform fallback engages cleanly

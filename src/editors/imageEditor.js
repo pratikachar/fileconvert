@@ -2,6 +2,7 @@
 // All processing is client-side. Heavy ML libs are loaded on demand.
 
 import { removeBackground } from './bgRemove.js';
+import { inpaintMask, opencvSizeMB } from './magicRemove.js';
 import { upscaleCanvas, UPSCALE_TIERS, UPSCALE_SCALES, estimateOutput, isHeavyScale, INPUT_CAP, ADV_INPUT_CAP } from './aiUpscale.js';
 import { resizeLanczos } from './resample.js';
 
@@ -199,7 +200,7 @@ function openTool(tool) {
   toolBaseCanvas.getContext('2d').drawImage(editorCanvas, 0, 0);
   activeTool = tool;
   clearOverlay();
-  ({ filters: openFilters, text: openText, crop: openCrop, resize: openResize, compress: openCompress, bg: openBg, aiupscale: openAiUpscale }[tool] || closeTool)();
+  ({ filters: openFilters, text: openText, crop: openCrop, resize: openResize, compress: openCompress, bg: openBg, magic: openMagic, aiupscale: openAiUpscale }[tool] || closeTool)();
 }
 
 // ---------- Filters / Adjust ----------
@@ -526,6 +527,164 @@ function openCompress() {
       toast(`Compressed to ${(blob.size / 1024).toFixed(0)} KB`);
     } finally {
       setLoading(false); closeTool();
+    }
+  });
+}
+
+// ---------- Magic Remove (OpenCV inpaint) ----------
+function openMagic() {
+  // The mask lives in its own canvas so Cancel is a single clearRect and the
+  // painted region can be read back as raw alpha for cv.inpaint.
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = editorCanvas.width;
+  maskCanvas.height = editorCanvas.height;
+  const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+
+  const view = document.createElement('canvas');
+  view.className = 'magic-mask-view';
+  overlayEl.appendChild(view);
+  overlayEl.style.cursor = 'crosshair';
+
+  const s = { size: 28, radius: 5, grow: 2, method: 'telea' };
+  const paint = () => {
+    const m = canvasMetrics();
+    view.style.left = m.leftInStage + 'px';
+    view.style.top = m.topInStage + 'px';
+    view.style.width = m.rect.width + 'px';
+    view.style.height = m.rect.height + 'px';
+    view.width = editorCanvas.width;
+    view.height = editorCanvas.height;
+    view.getContext('2d').drawImage(maskCanvas, 0, 0);
+  };
+  paint();
+
+  let painting = false;
+  let last = null;
+  const toCanvas = (e) => {
+    const m = canvasMetrics();
+    return {
+      x: ((e.clientX - m.rect.left) / m.rect.width) * editorCanvas.width,
+      y: ((e.clientY - m.rect.top) / m.rect.height) * editorCanvas.height,
+    };
+  };
+  const stroke = (from, to) => {
+    maskCtx.strokeStyle = 'rgba(255, 64, 96, 0.55)';
+    maskCtx.lineWidth = s.size;
+    maskCtx.lineCap = 'round';
+    maskCtx.lineJoin = 'round';
+    maskCtx.beginPath();
+    maskCtx.moveTo(from.x, from.y);
+    maskCtx.lineTo(to.x, to.y);
+    maskCtx.stroke();
+  };
+  // Pointer capture can reject (synthetic events, an already-released pointer).
+  // Losing capture only means the stroke ends early - it must never abort painting.
+  const capture = (e) => { try { overlayEl.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ } };
+  overlayEl.addEventListener('pointerdown', (e) => {
+    painting = true;
+    last = toCanvas(e);
+    stroke(last, last);
+    capture(e);
+    paint();
+    updateNote();
+    e.preventDefault();
+  });
+  overlayEl.addEventListener('pointermove', (e) => {
+    if (!painting) return;
+    const p = toCanvas(e);
+    stroke(last, p);
+    last = p;
+    paint();
+  });
+  const endStroke = () => {
+    if (!painting) return;
+    painting = false;
+    updateNote();
+  };
+  overlayEl.addEventListener('pointerup', endStroke);
+  overlayEl.addEventListener('pointercancel', endStroke);
+  overlayEl.addEventListener('pointerleave', endStroke);
+
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">🩹 Magic Remove</h3>
+    <p class="editor-hint">Paint over the object to remove. Red = the area that gets filled in from its surroundings.</p>
+    ${slider('size', 'Brush size', 4, 120, 28, 'px')}
+    <div class="editor-actions">
+      <button type="button" class="btn-secondary" id="mg-clear">Clear mask</button>
+      <button type="button" class="btn-secondary" data-act="cancel">Cancel</button>
+    </div>
+    ${slider('radius', 'Fill radius', 1, 25, 5, 'px')}
+    ${slider('grow', 'Grow mask', 0, 25, 2, 'px')}
+    <label class="control-label">Method</label>
+    <div class="seg-row">
+      <button type="button" class="seg-btn active" data-mg-m="telea">Telea (sharp)</button>
+      <button type="button" class="seg-btn" data-mg-m="ns">Navier-Stokes (smooth)</button>
+    </div>
+    <p class="editor-hint" id="mg-note"></p>
+    <div class="editor-actions">
+      <button class="btn-primary" id="mg-go">Remove painted area</button>
+    </div>
+    <p class="field-hint">Diffusion fill, not AI generation: it repairs small objects, wires, scratches and
+      blemishes cleanly. Large areas smear - that is a limit of the algorithm, not a bug. Everything stays on
+      your device. First run downloads the ~${opencvSizeMB()} MB OpenCV engine once.</p>`;
+
+  const note = $('mg-note');
+  const updateNote = () => {
+    const m = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+    let n = 0;
+    for (let i = 3; i < m.length; i += 4) if (m[i]) n++;
+    const pct = ((n / (maskCanvas.width * maskCanvas.height)) * 100).toFixed(1);
+    const big = parseFloat(pct) > 12;
+    note.innerHTML = n
+      ? `Marked <b>${pct}%</b> of the image.${big ? ' <b>That is a lot - expect smearing. Try a tighter brush.</b>' : ''}`
+      : 'Nothing painted yet.';
+  };
+  updateNote();
+
+  controlsEl.querySelectorAll('input[type=range]').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      s[inp.dataset.k] = +inp.value;
+      inp.nextElementSibling.textContent = inp.value + (inp.dataset.u || '');
+    });
+  });
+  controlsEl.querySelectorAll('[data-mg-m]').forEach((b) => {
+    b.addEventListener('click', () => {
+      s.method = b.dataset.mgM;
+      controlsEl.querySelectorAll('[data-mg-m]').forEach((x) => x.classList.toggle('active', x === b));
+    });
+  });
+  $('mg-clear').addEventListener('click', () => {
+    maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+    paint();
+    updateNote();
+  });
+  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => {
+    editorCtx.drawImage(toolBaseCanvas, 0, 0);
+    closeTool();
+  });
+
+  $('mg-go').addEventListener('click', async () => {
+    const px = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+    const mask = new Uint8ClampedArray(maskCanvas.width * maskCanvas.height);
+    for (let i = 0, q = 0; q < mask.length; i += 4, q++) mask[q] = px[i + 3];
+    if (!mask.some((v) => v)) { toast('Paint over the object first'); return; }
+    setLoading(true, 'Preparing the OpenCV engine…');
+    try {
+      const img = snapshot();
+      const res = await inpaintMask(img, mask, {
+        radius: s.radius,
+        grow: s.grow,
+        method: s.method,
+        onProgress: (f) => setLoading(true, f < 0.35 ? 'Loading the OpenCV engine…' : 'Filling the area…'),
+      });
+      editorCtx.putImageData(img, 0, 0);
+      pushHistory();
+      toast(`Filled ${(res.coverage * 100).toFixed(1)}% of the image (${s.method})`);
+    } catch (err) {
+      console.error('Magic Remove failed:', err);
+      toast('Magic Remove failed: ' + (err && err.message ? err.message : err));
+    } finally {
+      setLoading(false);
     }
   });
 }

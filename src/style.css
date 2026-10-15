@@ -1755,6 +1755,12 @@ html {
   pointer-events: auto;
 }
 
+/* Magic Remove: translucent copy of the painted mask, aligned to the canvas */
+.magic-mask-view {
+  position: absolute;
+  pointer-events: none;
+}
+
 .editor-side {
   width: 320px;
   flex: 0 0 320px;
