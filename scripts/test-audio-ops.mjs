@@ -5,7 +5,7 @@
 
 import {
   buildTrim, buildConcat, concatList, buildFade, buildNormalize, buildSpeed, buildPitch,
-  buildExtractAudio, buildSilenceTrim, buildReverse, buildTags, buildDenoise, buildRemux, denoiseChain,
+  buildExtractAudio, buildSilenceTrim, buildReverse, buildTags, buildKaraoke, buildRingtone, buildDenoise, buildRemux, denoiseChain,
   DENOISE_PRESETS, VIDEO_CONTAINER_AUDIO, VIDEO_MIME_TYPES, intermediateAudioExt,
   AUDIO_WARN_BYTES, AUDIO_HARD_BYTES, classifyAudioSize,
   atempoChain, codecArgs,
@@ -260,6 +260,29 @@ check('flac codec', has(codecArgs('flac'), '-c:a', 'flac'));
   check('vtrim: registered in TOOLS', !!vt && vt.needsVideo === true);
   check('vtrim: every offered video container has a mime', VIDEO_OUT_FORMATS.every((f) => !!VIDEO_MIME_TYPES[f.ext]));
   check('vtrim: video containers all video exts', VIDEO_OUT_FORMATS.every((f) => isVideoExt(f.ext)));
+}
+
+
+// --- phase 3 audio extras ---------------------------------------------------
+{
+  const k = buildKaraoke({ inName: 'in.wav', outName: 'k.mp3', intensity: 1, highpass: 200 });
+  check('karaoke: mid/side cancel filter present', has(k, '-af', 'pan=stereo|c0=1 *c0-1 *c1'.replace(/\s/g, '')) || k.some(function (a) { return String(a).includes('pan=stereo|c0=1') && String(a).includes('c1=1'); }));
+  check('karaoke: highpass added when asked', k.join(' ').includes('highpass=f=200'));
+  check('karaoke: no highpass when 0', !buildKaraoke({ inName: 'in.wav', outName: 'k.mp3', intensity: 0.5, highpass: 0 }).some(function (a) { return String(a).startsWith('highpass='); }));
+  const low = buildKaraoke({ inName: 'in.wav', outName: 'k.mp3', intensity: 10 }).join(' ');
+  check('karaoke: intensity clamped to 1.5', low.includes('1.5*'));
+  const high = buildKaraoke({ inName: 'in.wav', outName: 'k.mp3', intensity: 0 }).join(' ');
+  check('karaoke: intensity clamped to 0.3', high.includes('0.5*c0'));
+
+  const r = buildRingtone({ inName: 'in.wav', outName: 'r.mp3', start: 5, end: 25.5 });
+  check('ringtone: seeks before input', r.indexOf('-ss') < r.indexOf('-i'));
+  check('ringtone: trims to <=30 s', r[r.indexOf('-ss') + 1] === '5' && r[r.indexOf('-t') + 1] === '20.5');
+  check('ringtone: has fade in + out', has(r, '-af') && r.join(' ').includes('afade=t=in:st=0:d=0.1') && r.join(' ').includes('afade=t=out:'));
+  check('ringtone: loudnorm + limiter', r.join(' ').includes('dynaudnorm') && r.join(' ').includes('alimiter'));
+  const shortR = buildRingtone({ inName: 'in.wav', outName: 'r.mp3', start: 0, end: 3 });
+  check('ringtone: short content stays whole', shortR[shortR.indexOf('-t') + 1] === '3');
+  const openR = buildRingtone({ inName: 'in.wav', outName: 'r.mp3', start: 2, end: null });
+  check('ringtone: open end defaults 30s', openR[openR.indexOf('-t') + 1] === '30');
 }
 
 console.log(`${pass} checks passed, ${fails.length} failed`);

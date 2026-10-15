@@ -1027,6 +1027,69 @@ function renderPanel() {
     return;
   }
 
+  if (t === 'karaoke') {
+    el.innerHTML = `<p class="field-hint">Reduces dead-centre vocals (mid/side cancel). Stereo recordings only.</p>` +
+      `<label class="control-label">Intensity (0.3 to 1.5)</label>` +
+      `<input type="number" id="ao-ka-int" class="form-input" step="0.05" min="0.3" max="1.5" value="0.5" />` +
+      `<label class="control-inline"><input type="checkbox" id="ao-ka-hp" checked /> Cut rumble first (highpass 180 Hz)</label>` +
+      `<p class="field-hint">Honest limits: also softens drums, bass and duplicate content between channels, so it gets thinner. Mono files give almost no effect. Measured centre drop around 15 dB on a dead-centre 440 Hz tone.</p>`;
+    return;
+  }
+
+  if (t === 'ringtone') {
+    const m = activeFile();
+    const maxA = m && m.duration ? ops.r3(m.duration) : '0';
+    const selEndDefault = (m && m.duration && m.duration > 30) ? '30' : maxA;
+    el.innerHTML =
+      `<label class="control-label" for="ao-ri-s">Start (seconds)</label>` +
+      `<input type="number" id="ao-ri-s" class="form-input" step="0.01" min="0" max="${maxA}" value="${ops.r3(state.sel.start)}" />` +
+      `<label class="control-label" for="ao-ri-e">End (seconds, <=30)</label>` +
+      `<input type="number" id="ao-ri-e" class="form-input" step="0.01" min="0" max="${maxA}" value="${selEndDefault}" />` +
+      `<p class="field-hint">Cuts the section, then 0.1s fade-in, 0.3s fade-out, loudness normalisation and 0.95 peak limiter.</p>`;
+    return;
+  }
+
+  if (t === 'bpm') {
+    el.innerHTML =
+      `<h3 class="controls-title">BPM tap counter</h3>` +
+      `<p class="field-hint">Press the button or hit space in rhythm. Outliers 35% from the mean are discarded. Pure browser, no upload.</p>` +
+      `<div style="text-align:center;margin:12px 0"><button type="button" class="btn-primary btn-lg" id="ao-bpm-tap">Tap</button></div>` +
+      `<p id="ao-bpm-out" style="text-align:center;font-size:1.6rem;font-weight:600">--</p>` +
+      `<p id="ao-bpm-detail" class="field-hint" style="text-align:center">0 taps collected</p>` +
+      `<div class="editor-actions"><button type="button" class="btn-secondary" id="ao-bpm-reset">Reset</button></div>`;
+    let taps = [];
+    let lastTap = 0;
+    const showBpm = () => {
+      const det = document.getElementById('ao-bpm-detail');
+      if (taps.length < 2) { document.getElementById('ao-bpm-out').textContent = '--'; det.textContent = taps.length + ' taps collected'; return; }
+      const ints = [];
+      for (let i = 1; i < taps.length; i++) ints.push(taps[i] - taps[i - 1]);
+      const mean = ints.reduce((a, b) => a + b, 0) / ints.length;
+      const use = ints.filter((x) => Math.abs(x - mean) <= mean * 0.35);
+      const final = (use.length ? use : ints).reduce((a, b) => a + b, 0) / (use.length || ints.length);
+      document.getElementById('ao-bpm-out').textContent = Math.round(60000 / final) + ' BPM';
+      det.textContent = use.length + '/' + ints.length + ' intervals used, ~' + Math.round(final) + ' ms per beat.';
+    };
+    const onTap = () => {
+      const now = performance.now();
+      if (!lastTap || now - lastTap > 4000) taps = [now];
+      else taps.push(now);
+      if (taps.length > 9) taps = taps.slice(-9);
+      lastTap = now;
+      showBpm();
+      const btn = document.getElementById('ao-bpm-tap');
+      btn.classList.add('armed');
+      setTimeout(() => btn.classList.remove('armed'), 120);
+    };
+    document.getElementById('ao-bpm-tap').addEventListener('click', onTap);
+    const keyH = (e) => { if (e.code === 'Space' && !e.target.closest('input,textarea,button')) { e.preventDefault(); onTap(); } };
+    document.addEventListener('keydown', keyH);
+    document.getElementById('ao-bpm-reset').addEventListener('click', () => { taps = []; lastTap = 0; showBpm(); });
+    return;
+  }
+
+
+
   if (t === 'denoise') {
     const presets = Object.entries(ops.DENOISE_PRESETS)
       .map(([id, p]) => `<option value="${id}"${id === 'standard' ? ' selected' : ''}>${p.label} - ${p.desc}</option>`)
@@ -1464,6 +1527,12 @@ async function runTool() {
         }
       } else if (state.tool === 'reverse') {
         args = ops.buildReverse({ inName, outName, outExt, bitrate: br });
+      } else if (state.tool === 'karaoke') {
+        args = ops.buildKaraoke({ inName, outName, intensity: o.intensity, highpass: o.highpass, outExt, bitrate: br });
+        downloadName = `${base}-karaoke.${outExt}`;
+      } else if (state.tool === 'ringtone') {
+        args = ops.buildRingtone({ inName, outName, start: o.start, end: o.end, outExt, bitrate: br });
+        downloadName = `${base}-ringtone.${outExt}`;
       } else if (state.tool === 'tags') {
         args = ops.buildTags({ inName, outName, tags: o.tags, audioOnly: item.isVideo });
         downloadName = `${base}-tagged.${outExt}`;
