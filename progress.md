@@ -1,5 +1,26 @@
 # FileForge - File Converter, Icon, Image Editor & QR Generator
 
+## EXPANSION ROADMAP (2026-10-16, agreed with user: free + client-side only)
+Delivered in phases, each one tested + committed separately. Rule for all phases:
+no paid API, no server, no LLM, nothing leaves the device.
+- **Phase 1 - DONE**: Trim Video + video output containers in the Audio tab.
+- **Phase 2 - NEXT**: Magic Remove via self-hosted OpenCV Telea inpaint.
+- **Phase 3**: Audio extras - voice recorder (MediaRecorder), karaoke vocal reducer, ringtone maker, silence splitter, BPM tap counter.
+- **Phase 4**: Video utilities - lossless trim (shipped in P1), mute, rotate/flip, speed, WhatsApp compressor, extract frames, GIF->video, images->slideshow, replace audio track.
+- **Phase 5**: Image extras - EXIF viewer, watermark, meme presets, circle crop, Instagram grid splitter, palette extractor, collage maker, manual pixelate.
+- **Phase 6**: Text + dev tools tab - JSON, Base64, JWT, password gen, word count, diff, markdown, barcodes, unit/timestamp, regex, colour.
+- **Phase 7**: PDF mini-suite - merge, split, images->PDF, rotate pages (pdf-lib).
+- **Phase 8**: Capture - screen recorder, webcam snapshots, voice notes into the audio toolbox.
+- **Phase 9**: UX multipliers - install prompt, share-target, recent files, keyboard shortcuts.
+
+### Core-capability probe (headless Edge, pinned @ffmpeg/core 0.12.10)
+- Video encoders present: `libx264` OK, `mpeg4` OK, `libvpx-vp9` OK, `h264` OK.
+- NOT present: `libvpx` (VP8), `libtheora`, `libaom-av1` -> no WebM-VP8/Theora/AV1 output.
+- `drawtext` is MISSING (no freetype) -> all watermarks/text-over-video must be **canvas-composited**, never drawn by ffmpeg.
+- lavfi sources work (`testsrc`, `sine`, `aevalsrc`) -> synthetic clips can be generated for tests.
+- Filters confirmed working: `scale`, `transpose` (rotate), `setpts` (speed), `zoompan` (slideshow), `volumedetect`, `amix`.
+- Implies: Phase 4 video re-encode/compress/rotate/speed is feasible (libx264).
+
 ## File Architecture Map
 - `index.html` - 3-tab app shell (File Converter, Icon Generator, QR Generator) + OG/PWA meta
 - `vite.config.js` - Dev-server COOP/COEP headers, FFmpeg dep config
@@ -324,7 +345,19 @@ User symptom: preview loads the engine long, then sits on "rendering preview" fo
   - `resetFFmpegEngine()` + `isFFmpegLoading()` exported from media.js.
 - Verified: build green; 111 Node checks (60 old + 51 new); headless-Edge 7/7 (preload note -> ready, 600 MB refused with message, cancel mid-run resets UI with no orphan, post-cancel run completes, preview works after), 0 page exceptions.
 
-## Next Steps (Audio Toolbox)
+## PHASE 1: Trim Video + video output containers (Audio tab)
+Asked for as "cut videos + video outputs in the Audio tab". Shipped as the 11th rail tool rather than overloading Cut, so existing audio behaviour is untouched.
+- **New tool `🎞 Trim Video`** (gated on a video being active, with a hover reason).
+- **Two modes**: `🎞 Video (lossless cut)` / `🎵 Audio only` (the audio-only mode reuses the proven `buildTrim` path).
+- **Video outputs**: the single output-format select now offers containers (MP4/MOV/MKV/WEBM/AVI/3GP) when a video tool is active, and each mode remembers its own pick (`state.videoOutExt` / `state.audioOutExt`). Default = the source container.
+- **Pure stream copy** (`-c copy`): instant, no quality loss. `canLosslessVideoTrim()` encodes the container rule honestly - same container, ISO family (mp4/m4v/mov) interchange, or MKV as the universal target; anything else is refused *before* FFmpeg runs with a readable message.
+- **Optional stream mapping** (`0:v:0?` / `0:a:0?`) so files with no audio track do not die on "map matches no streams"; unchecking both still emits a playable picture.
+- **Quality-of-life**: start/end mirror the waveform selection, plus "use waveform selection", "First 15s", "Last 15s" presets.
+- **Honest limitation surfaced in the UI**: with `-c copy` the cut starts at the nearest *preceding* keyframe, so a clip can begin up to one GOP early. That is the price of not re-encoding; it is stated in the panel, not hidden.
+- Verified: build green; **132 Node checks** (21 new: container matrix, argv shape, optional mapping, NaN guards, TOOLS/mime registration); **headless-Edge 13/13** with a synthesized 12 s MP4 - trim 2s..6s produced a **4.02 s** `video/mp4` result, audio-only mode produced an MP3, MP4->WEBM was refused with the UI left usable, and the pre-existing audio Cut on the same video still worked. 0 page errors.
+- Bug caught by the E2E: the select change handler still called the renamed `isVideoOut()` -> ReferenceError silently killed the panel re-render (hint went stale). Fixed to `vtrimVideoOut()`.
+
+## Next Steps (Phase 2)
 - [ ] Live-test Extract Audio with a real MP4/MKV on desktop + phone
 - [ ] Test Merge with mixed sources (mp3 + m4a + wav) and normalize on a quiet phone recording
 - [ ] Long-file test (>20 min) to confirm the FFmpeg PCM waveform fallback engages cleanly

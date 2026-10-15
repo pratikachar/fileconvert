@@ -10,6 +10,7 @@ import {
   AUDIO_WARN_BYTES, AUDIO_HARD_BYTES, classifyAudioSize,
   atempoChain, codecArgs,
   canLosslessTrim, isSupportedInput, isVideoExt, isTaggable, extOf, r3, MP3_FRAME_SAMPLES,
+  buildVideoTrim, canLosslessVideoTrim, VIDEO_OUT_FORMATS, TOOLS,
 } from '../src/audio/ops.js';
 import { isWasmTrapError } from '../src/converters/media.js';
 import { computePeaks, computePeaksFromPcm, frameSnap, formatTime, timeAtX, xAtTime } from '../src/audio/waveform.js';
@@ -218,6 +219,47 @@ check('flac codec', has(codecArgs('flac'), '-c:a', 'flac'));
   check('no trap: missing file', isWasmTrapError('ffmpeg://whatever: No such file or directory') === false);
   check('no trap: exit code', isWasmTrapError(new Error('FFmpeg exited with code 1.')) === false);
   check('no trap: wrapped trap text stays trap', isWasmTrapError(new Error('FFmpeg command failed: RuntimeError: memory access out of bounds')) === true);
+}
+
+// --- video trim: stream-copy rules (the only video path the core is trusted for) ---
+{
+  // Container compatibility
+  check('vtrim: same container copies', canLosslessVideoTrim('mp4', 'mp4') === true);
+  check('vtrim: mp4->mov copies (ISO family)', canLosslessVideoTrim('mp4', 'mov') === true);
+  check('vtrim: mov->m4v copies (ISO family)', canLosslessVideoTrim('mov', 'm4v') === true);
+  check('vtrim: anything->mkv copies', canLosslessVideoTrim('avi', 'mkv') === true && canLosslessVideoTrim('mp4', 'mkv') === true);
+  check('vtrim: mp4->webm refused (codec mismatch)', canLosslessVideoTrim('mp4', 'webm') === false);
+  check('vtrim: mkv->webm refused', canLosslessVideoTrim('mkv', 'webm') === false);
+  check('vtrim: audio in/out refused', canLosslessVideoTrim('mp3', 'mp3') === false && canLosslessVideoTrim('mp4', 'mp3') === false);
+  check('vtrim: missing ext refused', canLosslessVideoTrim('', 'mp4') === false && canLosslessVideoTrim('mp4', null) === false);
+
+  // Command shape
+  const a = buildVideoTrim({ inName: 'in.mp4', outName: 'out.mp4', start: 5, end: 15 });
+  check('vtrim: seeks before input', a.indexOf('-ss') < a.indexOf('-i') && a[a.indexOf('-ss') + 1] === '5');
+  check('vtrim: duration cap', a.includes('-t') && a[a.indexOf('-t') + 1] === '10');
+  check('vtrim: copies both streams', has(a, '-map', '0:v:0?', '-map', '0:a:0?', '-c', 'copy'));
+  check('vtrim: negative ts shifted', a.includes('-avoid_negative_ts') && a[a.indexOf('-avoid_negative_ts') + 1] === 'make_zero');
+  check('vtrim: writes to out name', a[a.length - 1] === 'out.mp4' && a[a.length - 2] === '-y');
+
+  // Optional stream mapping must not fail on files lacking an audio track.
+  const noAudio = buildVideoTrim({ inName: 'in.mp4', outName: 'out.mp4', start: 0, end: 5, keepAudio: false });
+  check('vtrim: video-only drops audio map', !noAudio.includes('0:a:0') && noAudio.includes('0:v:0?'));
+  const audioOnly = buildVideoTrim({ inName: 'in.mp4', outName: 'out.m4a', start: 0, end: 5, keepVideo: false, keepAudio: true });
+  check('vtrim: audio-only drops video map', !audioOnly.includes('0:v:0') && audioOnly.includes('0:a:0?'));
+  const neither = buildVideoTrim({ inName: 'in.mp4', outName: 'out.mp4', start: 0, end: 5, keepVideo: false, keepAudio: false });
+  check('vtrim: both off still emits a playable file', neither.includes('0:v:0?'));
+
+  // Degenerate inputs must not produce NaN in argv
+  const bad = buildVideoTrim({ inName: 'in.mp4', outName: 'out.mp4', start: -5, end: 2 });
+  check('vtrim: negative start clamps to 0', bad[bad.indexOf('-ss') + 1] === '0' && !bad.join(' ').includes('NaN'));
+  const open = buildVideoTrim({ inName: 'in.mp4', outName: 'out.mp4', start: 3, end: null });
+  check('vtrim: open end omits -t', !open.includes('-t') && open[open.indexOf('-ss') + 1] === '3');
+
+  // Registry: tool exists and is video-gated
+  const vt = TOOLS.find((t) => t.id === 'vtrim');
+  check('vtrim: registered in TOOLS', !!vt && vt.needsVideo === true);
+  check('vtrim: every offered video container has a mime', VIDEO_OUT_FORMATS.every((f) => !!VIDEO_MIME_TYPES[f.ext]));
+  check('vtrim: video containers all video exts', VIDEO_OUT_FORMATS.every((f) => isVideoExt(f.ext)));
 }
 
 console.log(`${pass} checks passed, ${fails.length} failed`);

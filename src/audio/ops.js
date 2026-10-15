@@ -63,6 +63,61 @@ export function canLosslessTrim(inExt, outExt) {
   return inExt === outExt && ['mp3', 'aac', 'm4a', 'wav'].includes(outExt);
 }
 
+/** Video containers offered as *outputs* by the video tools. */
+export const VIDEO_OUT_FORMATS = [
+  { ext: 'mp4', label: 'MP4 (H.264/AAC)' },
+  { ext: 'mov', label: 'MOV (QuickTime)' },
+  { ext: 'mkv', label: 'MKV (Matroska)' },
+  { ext: 'webm', label: 'WEBM (VP8/Vorbis)' },
+  { ext: 'avi', label: 'AVI' },
+  { ext: '3gp', label: '3GP (phone)' },
+];
+
+/**
+ * Which containers can hold the source streams with a pure `-c copy`.
+ * Stream copy is the only video path the pinned core is trusted for
+ * (`-c:v copy` + `-af` traps it, see buildRemux), so the rule is
+ * "same container, or a container that accepts anything".
+ */
+export function canLosslessVideoTrim(inExt, outExt) {
+  const i = String(inExt || '').toLowerCase();
+  const o = String(outExt || '').toLowerCase();
+  if (!i || !o || !VIDEO_EXTS.includes(i) || !VIDEO_EXTS.includes(o)) return false;
+  if (i === o) return true;
+  // ISO base media family: MP4 / M4V / MOV are interchangeable for h264+aac.
+  const isoFamily = ['mp4', 'm4v', 'mov'];
+  if (isoFamily.includes(i) && isoFamily.includes(o)) return true;
+  // Matroska accepts essentially every elementary stream ffmpeg can decode.
+  return o === 'mkv';
+}
+
+/**
+ * Trim a video with pure stream copy: instant, no quality loss.
+ *
+ * `-ss` before `-i` seeks to the nearest *preceding* keyframe, so the clip can
+ * begin slightly earlier than asked (bounded by the GOP length) - that is the
+ * honest trade for a zero-re-encode cut. Streams are mapped with `?` so files
+ * missing an audio track do not fail with "map matches no streams".
+ */
+export function buildVideoTrim({
+  inName, outName,
+  start = 0, end = null,
+  keepVideo = true, keepAudio = true,
+}) {
+  const s = Math.max(0, Number(start) || 0);
+  const e = end == null ? null : Math.max(0, Number(end) || 0);
+  const dur = e != null && e > s ? e - s : null;
+
+  const args = ['-ss', r3(s), '-i', inName];
+  if (dur != null) args.push('-t', r3(dur));
+  // Dropping both would produce nothing; keep the picture so the output is usable.
+  const wantVideo = keepVideo || !keepAudio;
+  if (wantVideo) args.push('-map', '0:v:0?');
+  if (keepAudio) args.push('-map', '0:a:0?');
+  args.push('-c', 'copy', '-avoid_negative_ts', 'make_zero', '-y', outName);
+  return args;
+}
+
 export function r3(n) {
   return String(Math.round(Number(n) * 1000) / 1000);
 }
@@ -353,6 +408,7 @@ export function buildDenoise({
 
 export const TOOLS = [
   { id: 'cut', label: '✂️ Cut' },
+  { id: 'vtrim', label: '🎞 Trim Video', needsVideo: true },
   { id: 'merge', label: '🔗 Merge', needsFiles: 2 },
   { id: 'fade', label: '🌗 Fade' },
   { id: 'normalize', label: '🔊 Normalize' },

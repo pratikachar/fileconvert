@@ -33,6 +33,10 @@ const state = {
   drag: null,
   confirm: { kind: null, id: null },
   confirmTimer: null,
+  /** Output-format memory per mode, so switching tools never loses a pick. */
+  audioOutExt: 'mp3',
+  videoOutExt: 'mp4',
+  vtrimMode: 'video',
 };
 
 let canvas = null;
@@ -81,6 +85,34 @@ function baseName(name) {
 
 function fmtOutExt() {
   return $('audio-out-ext').value;
+}
+
+/** vtrim in video mode is the only tool that writes a container via the shared select. */
+function vtrimVideoOut() {
+  return state.tool === 'vtrim' && state.vtrimMode === 'video';
+}
+
+/**
+ * The shared output-format select is reused for audio and video outputs so
+ * there is still only one control in the run row. Options follow the active
+ * tool/mode, and each mode remembers its own pick.
+ */
+function updateOutExtOptions() {
+  const sel = $('audio-out-ext');
+  if (!sel) return;
+  const video = vtrimVideoOut();
+  const list = video ? ops.VIDEO_OUT_FORMATS : ops.AUDIO_OUT_FORMATS;
+  const want = video ? state.videoOutExt : state.audioOutExt;
+  const item = activeFile();
+  // Default a video output to the source container (the always-safe copy target).
+  const def = video && item && item.isVideo ? item.ext : null;
+  const remembered = want && list.some((f) => f.ext === want) ? want : null;
+  const value = remembered || (def && list.some((f) => f.ext === def) ? def : list[0].ext);
+  sel.innerHTML = list.map((f) => `<option value="${f.ext}">${f.label}</option>`).join('');
+  sel.value = value;
+  if (video) state.videoOutExt = value;
+  else state.audioOutExt = value;
+  updateBitrateVisibility();
 }
 
 function bitrate() {
@@ -205,22 +237,23 @@ export function setupAudioTab() {
 
   // Output format / bitrate
   const sel = $('audio-out-ext');
-  sel.innerHTML = ops.AUDIO_OUT_FORMATS.map((f) => `<option value="${f.ext}">${f.label}</option>`).join('');
-  sel.value = 'mp3';
   sel.addEventListener('change', () => {
+    if (vtrimVideoOut()) state.videoOutExt = sel.value;
+    else state.audioOutExt = sel.value;
     updateBitrateVisibility();
     renderTools();
     renderPanel();
   });
   $('audio-bitrate').innerHTML = ops.BITRATES.map((b) => `<option value="${b}"${b === 192 ? ' selected' : ''}>${b} kbps</option>`).join('');
   $('audio-bitrate').addEventListener('change', renderPanel);
-  updateBitrateVisibility();
+  updateOutExtOptions();
 
   // Tools
   $('audio-toolbar').addEventListener('click', (e) => {
     const btn = e.target.closest('.audio-tool-btn');
     if (!btn || btn.disabled) return;
     state.tool = btn.dataset.tool;
+    updateOutExtOptions();
     renderTools();
     renderPanel();
   });
@@ -267,6 +300,8 @@ export function setupAudioTab() {
   });
 
   window.__audioAddFiles = addFiles;
+  // Read-only result accessor so automated checks can inspect real output bytes.
+  window.__audioResults = () => state.results.map((r) => ({ name: r.name, mime: r.mime, size: r.size, url: r.url }));
 
   // Render the disabled tool rail + empty panel before any file is loaded.
   renderTools();
@@ -276,7 +311,10 @@ export function setupAudioTab() {
 
 function updateBitrateVisibility() {
   const ext = effectiveOutExt();
-  $('audio-bitrate-group').classList.toggle('hidden', ['wav', 'flac'].includes(ext));
+  // Bitrate only matters when audio is re-encoded: stream-copy runs (video
+  // trim, tag rewrite) ignore it, as do the uncompressed formats.
+  const copies = vtrimVideoOut() || state.tool === 'tags';
+  $('audio-bitrate-group').classList.toggle('hidden', copies || ['wav', 'flac'].includes(ext));
 }
 
 /** Output extension actually used (denoise video mode keeps the container). */
@@ -485,6 +523,7 @@ async function setActive(id) {
   state.activeId = id;
   selectFull();
   renderFileList();
+  updateOutExtOptions();
   renderTools();
   renderPanel();
   draw();
@@ -499,6 +538,7 @@ async function setActive(id) {
     $('audio-wave-note').classList.toggle('hidden', !!item.peaks);
     selectFull();
     renderFileList();
+    updateOutExtOptions();
     renderTools();
     renderPanel();
     resizeCanvas();
@@ -758,7 +798,7 @@ function renderTools() {
     let why = '';
     if (t.needsVideo) {
       disabled = !(item && item.isVideo);
-      why = 'Load a video file (MP4/MOV/MKV/AVI/WEBM) to extract its audio.';
+      why = 'Load a video file (MP4/MOV/MKV/AVI/WEBM) first.';
     } else if (t.needsFiles) {
       disabled = audioCount < t.needsFiles;
       why = `Load at least ${t.needsFiles} audio files to merge them.`;
@@ -811,6 +851,67 @@ function renderPanel() {
         toast('Lossless needs the same input and output format - picked a re-encode instead.');
       });
     }
+    return;
+  }
+
+  if (t === 'vtrim') {
+    const item2 = activeFile();
+    const src = item2 ? item2.ext : '';
+    const videoMode = state.vtrimMode === 'video';
+    const copyOk = videoMode && ops.canLosslessVideoTrim(src, fmtOutExt());
+    el.innerHTML = `
+      <label class="control-label">Output</label>
+      <div class="seg-row">
+        <button type="button" class="seg-btn${videoMode ? ' active' : ''}" data-vmode="video">🎞 Video (lossless cut)</button>
+        <button type="button" class="seg-btn${videoMode ? '' : ' active'}" data-vmode="audio">🎵 Audio only</button>
+      </div>
+      <label class="control-label" for="ao-vstart">Start (seconds)</label>
+      <input type="number" id="ao-vstart" class="form-input" step="0.01" min="0" max="${maxAttr}" value="${ops.r3(state.sel.start)}" />
+      <label class="control-label" for="ao-vend">End (seconds)</label>
+      <input type="number" id="ao-vend" class="form-input" step="0.01" min="0" max="${maxAttr}" value="${ops.r3(state.sel.end)}" />
+      <div class="option-button-group">
+        <button type="button" class="btn-secondary btn-mini" data-vsel="sel">↔ Use waveform selection</button>
+        <button type="button" class="btn-secondary btn-mini" data-vsel="first15">⏱ First 15s</button>
+        <button type="button" class="btn-secondary btn-mini" data-vsel="last15">⏱ Last 15s</button>
+      </div>
+      ${videoMode ? `<label class="control-inline"><input type="checkbox" id="ao-vaudio" checked /> Keep the audio track</label>` : ''}
+      <p class="field-hint">${videoMode
+        ? (copyOk
+          ? `Lossless stream copy into <b>${fmtOutExt().toUpperCase()}</b> - instant, no quality loss. The clip can start up to one keyframe early (GOP length), which is the trade for not re-encoding.`
+          : `A <b>${src.toUpperCase()}</b> file cannot be stream-copied into <b>${fmtOutExt().toUpperCase()}</b>. Pick the source container (or MKV, which accepts anything), or switch to Audio only.`)
+        : 'Audio only: same trimming and re-encoding rules as the Cut tool. To change the video format, use the File Converter tab.'}</p>`;
+    const applyTimes = (s, e2) => {
+      state.sel = { start: s, end: e2 };
+      draw();
+      renderPanel();
+    };
+    const bindTimes = () => {
+      const s = parseFloat($('ao-vstart').value);
+      const e2 = parseFloat($('ao-vend').value);
+      if (!Number.isNaN(s) && !Number.isNaN(e2) && e2 > s) {
+        state.sel = { start: s, end: e2 };
+        draw();
+      }
+    };
+    $('ao-vstart').addEventListener('input', bindTimes);
+    $('ao-vend').addEventListener('input', bindTimes);
+    el.querySelectorAll('[data-vmode]').forEach((b) => {
+      b.addEventListener('click', () => {
+        state.vtrimMode = b.dataset.vmode;
+        updateOutExtOptions();
+        renderTools();
+        renderPanel();
+      });
+    });
+    el.querySelectorAll('[data-vsel]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const d = item2 && item2.duration ? item2.duration : 0;
+        if (b.dataset.vsel === 'first15') applyTimes(0, Math.min(d || 15, 15));
+        else if (b.dataset.vsel === 'last15') applyTimes(Math.max(0, (d || 15) - 15), d || 15);
+        else if (state.sel.end > state.sel.start) applyTimes(state.sel.start, state.sel.end);
+        else toast('Drag a selection on the waveform first.');
+      });
+    });
     return;
   }
 
@@ -1044,6 +1145,14 @@ function readPanel() {
       lossless: !!(($('ao-lossless') || {}).checked),
     };
   }
+  if (t === 'vtrim') {
+    return {
+      start: num('ao-vstart', state.sel.start),
+      end: num('ao-vend', state.sel.end),
+      keepAudio: !!(($('ao-vaudio') || {}).checked),
+      videoMode: state.vtrimMode === 'video',
+    };
+  }
   if (t === 'fade') return { fadeIn: num('ao-fadein', 2), fadeOut: num('ao-fadeout', 3) };
   if (t === 'normalize') {
     const mode = ($('ao-mode') || {}).value || 'loudnorm';
@@ -1082,6 +1191,17 @@ function readPanel() {
 // ============================================
 // Run
 // ============================================
+/** Returns an error string when a video trim cannot run as configured, else null. */
+function vtrimGuardrail(item, o, outExt) {
+  if (!item.isVideo) return 'Trim Video needs a video file (MP4/MOV/MKV/AVI/WEBM).';
+  if (!(o.end > o.start)) return 'Pick an end time after the start time.';
+  if (item.duration && o.start >= item.duration) return `Start time is past the end of the clip (${formatTime(item.duration)}).`;
+  if (o.videoMode && !ops.canLosslessVideoTrim(item.ext, outExt)) {
+    return `A ${item.ext.toUpperCase()} file cannot be stream-copied into ${outExt.toUpperCase()}. Choose the source container (or MKV), or switch to Audio only.`;
+  }
+  return null;
+}
+
 /** Returns an error string when the denoise settings cannot run, else null. */
 function denoiseGuardrail(item, o) {
   if (!o.profile) return null;
@@ -1243,6 +1363,16 @@ async function runTool() {
   liveRunId = myRun;
   startElapsed();
 
+  /** Refuse a run before touching FFmpeg: toast, restore the UI, stay idle. */
+  const bailRun = (msg) => {
+    toast(msg);
+    progress.classList.add('hidden');
+    stopElapsed();
+    $('audio-cancel').classList.add('hidden');
+    runBtn.disabled = false;
+    liveRunId = 0;
+  };
+
   try {
     let args = [];
     let inputs = [];
@@ -1265,6 +1395,22 @@ async function runTool() {
 
       if (state.tool === 'cut') {
         args = ops.buildTrim({ inName, outName, start: o.start, end: o.end, outExt, bitrate: br, fadeIn: o.fadeIn, fadeOut: o.fadeOut, lossless: o.lossless, audioOnly: item.isVideo });
+      } else if (state.tool === 'vtrim') {
+        const guard = vtrimGuardrail(item, o, outExt);
+        if (guard) { bailRun(guard); return; }
+        downloadName = `${base}-trimmed.${outExt}`;
+        if (o.videoMode) {
+          args = ops.buildVideoTrim({
+            inName, outName, start: o.start, end: o.end,
+            keepVideo: true, keepAudio: o.keepAudio,
+          });
+        } else {
+          // Audio-only mode reuses the proven audio cutter path.
+          args = ops.buildTrim({
+            inName, outName, start: o.start, end: o.end, outExt, bitrate: br,
+            fadeIn: 0, fadeOut: 0, lossless: false, audioOnly: true,
+          });
+        }
       } else if (state.tool === 'fade') {
         args = ops.buildFade({ inName, outName, duration: item.duration, fadeIn: o.fadeIn, fadeOut: o.fadeOut, outExt, bitrate: br });
       } else if (state.tool === 'normalize') {
@@ -1291,15 +1437,7 @@ async function runTool() {
       } else if (state.tool === 'denoise') {
         const videoMode = item.isVideo && o.videoOut;
         const guard = denoiseGuardrail(item, o);
-        if (guard) {
-          toast(guard);
-          progress.classList.add('hidden');
-          stopElapsed();
-          $('audio-cancel').classList.add('hidden');
-          runBtn.disabled = false;
-          liveRunId = 0;
-          return;
-        }
+        if (guard) { bailRun(guard); return; }
         if (item.duration && item.duration > ops.LONG_DENOISE_WARN_SECS) {
           toast(`Long file (${formatTime(item.duration)}) - this can take a few minutes.`);
         }
@@ -1371,6 +1509,7 @@ function addResult(name, bytes, mime) {
   state.results.push({
     id: ++state.resSeq,
     name,
+    mime,
     blob,
     url: URL.createObjectURL(blob),
     size: blob.size,
