@@ -372,9 +372,18 @@ function renderTextPanel() {
   }
 
   if (t === 'color') {
+    const hasDropper = typeof window.EyeDropper === 'function';
     el.innerHTML = `
-      <label class="control-label" for="tt-c-in">Color (#rgb, #rrggbb, rgb(), hsl())</label>
-      <input type="text" id="tt-c-in" class="form-input" value="#c0392b" />
+      <div class="sliders-row">
+        <div><label class="control-label" for="tt-c-in">Color (#rgb, #rrggbb, rgb(), hsl())</label>
+        <input type="text" id="tt-c-in" class="form-input" value="#c0392b" /></div>
+        <div><label class="control-label" for="tt-c-pick">Pick</label>
+        <input type="color" id="tt-c-pick" value="#c0392b" style="width:100%;height:42px;padding:2px;"></div>
+      </div>
+      <div class="editor-actions">
+        <button type="button" class="btn-secondary btn-mini" id="tt-c-drop"${hasDropper ? '' : ' disabled'}>🎯 Pick from screen</button>
+      </div>
+      <p class="editor-hint" id="tt-c-msg">${hasDropper ? '' : 'Screen picking needs a Chromium browser - the color box above works everywhere.'}</p>
       <div id="tt-c-out"></div>`;
     const run = () => {
       const r = convertColor($('tt-c-in').value);
@@ -384,8 +393,25 @@ function renderTextPanel() {
         : `<p class="editor-hint">${escapeHtml(r.error)}</p>`;
       const btn = $('tt-c-copy');
       if (btn) btn.addEventListener('click', () => copyText(r.hex, 'HEX copied'));
+      if (r.ok) $('tt-c-pick').value = r.hex;
     };
     $('tt-c-in').addEventListener('input', run);
+    $('tt-c-pick').addEventListener('input', (e) => {
+      $('tt-c-in').value = e.target.value;
+      run();
+    });
+    if (hasDropper) {
+      $('tt-c-drop').addEventListener('click', async () => {
+        try {
+          const dropper = new window.EyeDropper();
+          const { sRGBHex } = await dropper.open();
+          $('tt-c-in').value = sRGBHex;
+          run();
+        } catch (err) {
+          if (err && err.name !== 'AbortError') $('tt-c-msg').textContent = 'Picker failed: ' + (err.message || err);
+        }
+      });
+    }
     run();
   }
 }

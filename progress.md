@@ -467,3 +467,9 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 - Mobile audit at 390px (headless-Edge, real taps): all 8 tabs open with no page-level horizontal overflow, empty and loaded states (25-tool rail + waveform, editor + open tool, 13-tool rail), compact labels verified live on all four rails.
 - PWA audit: manifest installability fields complete, all 4 PNG icons fetch at stated sizes, theme-color + apple-touch-icon (added) + manifest link + viewport present, sw.js keeps the share route with skipWaiting/claim and stays network-only otherwise.
 - Verified: build green; audio/text/pdf suites green (+registry-short checks); **mobile+PWA 25/25**. 0 page errors.
+
+## Short tab names + heroes + real color picker
+- Tabs renamed everywhere to one short label each (Converter, Icon Maker, QR, Editor, AI, AV Tools, Txt Tools, PDF Tools) - the full/short dual-span system is gone. Smaller icons, tighter padding; all 8 fit without scrolling at 390px (356px used) and 360px (326px used).
+- Every tab hero now enumerates what the tab does (formats+resize, QR types+SVG export, metadata report, all 25 audio tools, color picker, PDF jobs, all 18 editor tools).
+- Color tool is now a real picker: native color input synced both ways with the converter, plus a system EyeDropper button that only appears where the API exists (honest note elsewhere).
+- Verified: build green; **tabs-ui 14/14** - exact names, no legacy spans, fit at both widths, all hero keywords, picker both directions, EyeDropper wiring matches API presence. 0 page errors.

@@ -168,19 +168,19 @@ html {
 
 .nav-tab {
   flex: 1;
-  padding: 12px 18px;
+  padding: 10px 12px;
   background: transparent;
   border: none;
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-family: var(--font-family);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   transition: var(--transition-normal);
 }
 
@@ -196,11 +196,12 @@ html {
 }
 
 .tab-icon {
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
-.tab-label-short {
-  display: none;
+/* Single short label per tab (fits phones and desktop alike). */
+.tab-label {
+  white-space: nowrap;
 }
 
 .field-hint {
@@ -1068,25 +1069,22 @@ html {
   }
 
   .nav-tab {
-    padding: 8px 10px;
-    font-size: 0.72rem;
-    gap: 4px;
-    flex: 0 0 auto;
-    min-width: max-content;
+    padding: 7px 6px;
+    font-size: 0.7rem;
+    gap: 3px;
+    /* Squeeze all 8 tabs in first; the row still scrolls as a fallback. */
+    flex: 1 1 0;
+    min-width: 0;
     justify-content: center;
   }
 
-  .tab-label-full {
-    display: none;
-  }
-
-  .tab-label-short {
-    display: inline;
-    white-space: nowrap;
+  .tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .tab-icon {
-    font-size: 1.2rem;
+    font-size: 0.95rem;
   }
 }
 
@@ -1095,18 +1093,18 @@ html {
     display: none;
   }
 
-  /* 6 tabs no longer fit evenly, so let them size to their label and let the
-     row scroll (overflow-x:auto is set at <=640px) instead of clipping text. */
+  /* All 8 short tabs should fit without scrolling; the row still scrolls
+     as a fallback on very narrow screens (overflow-x:auto above). */
   .nav-tabs {
     gap: 3px;
     padding: 5px 4px;
   }
 
   .nav-tab {
-    flex: 1 1 auto;
-    min-width: max-content;
-    padding: 8px 7px;
-    font-size: 0.68rem;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 7px 4px;
+    font-size: 0.64rem;
   }
 
   .logo-text {
