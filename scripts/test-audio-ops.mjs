@@ -352,6 +352,16 @@ check('flac codec', has(codecArgs('flac'), '-c:a', 'flac'));
   check('registry: frame cap is sane', MAX_EXTRACT_FRAMES === 12);
 }
 
+// --- compact rail labels (phones) ---
+{
+  const missing = TOOLS.filter((t) => !t.short);
+  check("shorts: every audio tool has one", missing.length === 0, missing.map((t) => t.id).join(","));
+  const longer = TOOLS.filter((t) => t.short && t.short.length > t.label.length);
+  check("shorts: never longer than the label", longer.length === 0, longer.map((t) => t.id).join(","));
+  const ids = new Set(TOOLS.map((t) => t.id));
+  check("shorts: ids still unique", ids.size === TOOLS.length);
+}
+
 console.log(`${pass} checks passed, ${fails.length} failed`);
 if (fails.length) {
   console.log('FAILURES:\n- ' + fails.join('\n- '));

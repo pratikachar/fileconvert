@@ -9,6 +9,7 @@ import {
   parsePageSpec, pdfPageCount, mergePdfs, extractPages, rotatePages,
   imagesToPdf, blankPdf, pageRotations, MAX_SPLIT_PAGES,
 } from '../src/pdftools/pdftools.js';
+import { PDF_TOOLS } from '../src/pdftools/pdfTab.js';
 import { PDFDocument } from 'pdf-lib';
 
 let pass = 0;
@@ -98,6 +99,13 @@ const b = await blankPdf(3, 'B');
   let threw = false;
   try { await imagesToPdf([], 'fit'); } catch { threw = true; }
   check('images: empty refused', threw);
+}
+
+{
+  const missing = PDF_TOOLS.filter((t) => !t.short);
+  check("shorts: every pdf tool has one", missing.length === 0, missing.map((t) => t.id).join(","));
+  const longer = PDF_TOOLS.filter((t) => t.short && t.short.length > t.label.length);
+  check("shorts: never longer than the label", longer.length === 0, longer.map((t) => t.id).join(","));
 }
 
 console.log(`${pass} checks passed, ${fails.length} failed`);

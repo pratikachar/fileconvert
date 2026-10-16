@@ -94,6 +94,11 @@ export function setupImageEditor() {
   $('editor-reset').addEventListener('click', resetAll);
   // Cross-tab hook: lets shared files (and anything else) open an image here.
   window.__editorLoadFile = loadImageFile;
+  // Compact tool names on phones (labels only - tools themselves untouched).
+  applyToolShorts();
+  if (window.matchMedia) {
+    window.matchMedia('(max-width: 640px)').addEventListener('change', applyToolShorts);
+  }
 
   // Export
   $('editor-download').addEventListener('click', exportDownload);
@@ -888,6 +893,16 @@ function blobToCanvas(blob) {
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** Swap tool buttons to their data-short labels on narrow screens. */
+function applyToolShorts() {
+  if (!window.matchMedia) return;
+  const narrow = window.matchMedia('(max-width: 640px)').matches;
+  document.querySelectorAll('#editor-toolbar .tool-btn[data-short]').forEach((b) => {
+    if (!b.dataset.full) b.dataset.full = b.textContent;
+    b.textContent = narrow ? b.dataset.short : b.dataset.full;
+  });
 }
 
 // ---------- Watermark ----------

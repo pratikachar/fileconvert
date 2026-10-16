@@ -461,3 +461,9 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 - New `src/editors/ocr.js`: same-origin `ocrOptions()` (asserted pure: no http anywhere), singleton worker, `summarizeResult()` trims per-line noise. UI: Run with live status %, readonly result, stats, copy, honest scope note (printed English only; handwriting/decorative fonts won't read).
 - Verified: build green; 9 Node checks; **headless-Edge 9/9** - synthetic HELLO WORLD/12345 read back at **96% confidence in 6s**, copy works. 0 page errors.
 - E2E lesson learned the hard way: static toolbar markup exists long before module setup attaches listeners, so a lost file-input event silently does nothing. Suites must wait on a boot signal (`window.__audioAddFiles`/`__editorLoadFile`) rather than DOM presence or fixed sleeps.
+
+## Names shortened for phones + mobile/PWA audit
+- Compact rail labels: every audio (25), text (13) and PDF (4) tool now carries a `short` label, used automatically under 640px via matchMedia (rail re-renders only - open panels and their inputs are never touched, so rotate/resize loses nothing). The editor toolbar swaps via `data-short` (Magic Remove -> Magic). Node suites assert full coverage and short<=label.
+- Mobile audit at 390px (headless-Edge, real taps): all 8 tabs open with no page-level horizontal overflow, empty and loaded states (25-tool rail + waveform, editor + open tool, 13-tool rail), compact labels verified live on all four rails.
+- PWA audit: manifest installability fields complete, all 4 PNG icons fetch at stated sizes, theme-color + apple-touch-icon (added) + manifest link + viewport present, sw.js keeps the share route with skipWaiting/claim and stays network-only otherwise.
+- Verified: build green; audio/text/pdf suites green (+registry-short checks); **mobile+PWA 25/25**. 0 page errors.

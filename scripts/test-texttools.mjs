@@ -9,6 +9,7 @@ import {
   UNIT_CATEGORIES, tsToDate, dateToTs, testRegex, convertColor,
   rgbToHsl, hslToRgb,
 } from '../src/texttools/texttools.js';
+import { TEXT_TOOLS } from '../src/texttools/textTab.js';
 
 let pass = 0;
 const fails = [];
@@ -137,6 +138,13 @@ function check(name, cond, extra = '') {
   check('color: out-of-range rgb rejected', !convertColor('rgb(0,0,999)').ok);
   const rt = hslToRgb(...Object.values((() => { const h = rgbToHsl(70, 130, 180); return [h.h, h.s, h.l]; })()));
   check('color: rgb->hsl->rgb round-trips', Math.abs(rt.r - 70) <= 2 && Math.abs(rt.g - 130) <= 2 && Math.abs(rt.b - 180) <= 2);
+}
+
+{
+  const missing = TEXT_TOOLS.filter((t) => !t.short);
+  check("shorts: every text tool has one", missing.length === 0, missing.map((t) => t.id).join(","));
+  const longer = TEXT_TOOLS.filter((t) => t.short && t.short.length > t.label.length);
+  check("shorts: never longer than the label", longer.length === 0, longer.map((t) => t.id).join(","));
 }
 
 console.log(`${pass} checks passed, ${fails.length} failed`);

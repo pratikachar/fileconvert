@@ -13,19 +13,19 @@ import {
 const $ = (id) => document.getElementById(id);
 
 export const TEXT_TOOLS = [
-  { id: 'json', label: '{} JSON' },
-  { id: 'base64', label: '🔣 Base64' },
-  { id: 'url', label: '🔗 URL codec' },
-  { id: 'jwt', label: '🎫 JWT decode' },
-  { id: 'password', label: '🔑 Passwords' },
-  { id: 'words', label: '📝 Word count' },
-  { id: 'diff', label: '🔀 Text diff' },
-  { id: 'markdown', label: '📄 Markdown' },
-  { id: 'barcode', label: '📊 Barcodes' },
-  { id: 'units', label: '📏 Units' },
-  { id: 'time', label: '⏱ Timestamps' },
-  { id: 'regex', label: '🧪 Regex' },
-  { id: 'color', label: '🎨 Colors' },
+  { id: 'json', label: '{} JSON', short: '{} JSON' },
+  { id: 'base64', label: '🔣 Base64', short: '🔣 B64' },
+  { id: 'url', label: '🔗 URL codec', short: '🔗 URL' },
+  { id: 'jwt', label: '🎫 JWT decode', short: '🎫 JWT' },
+  { id: 'password', label: '🔑 Passwords', short: '🔑 PW' },
+  { id: 'words', label: '📝 Word count', short: '📝 Words' },
+  { id: 'diff', label: '🔀 Text diff', short: '🔀 Diff' },
+  { id: 'markdown', label: '📄 Markdown', short: '📄 MD' },
+  { id: 'barcode', label: '📊 Barcodes', short: '📊 Codes' },
+  { id: 'units', label: '📏 Units', short: '📏 Units' },
+  { id: 'time', label: '⏱ Timestamps', short: '⏱ Time' },
+  { id: 'regex', label: '🧪 Regex', short: '🧪 Regex' },
+  { id: 'color', label: '🎨 Colors', short: '🎨 Color' },
 ];
 
 let activeTool = 'json';
@@ -65,13 +65,18 @@ export function setupTextTab() {
     renderTextTools();
     renderTextPanel();
   });
+  // Shorter rail labels on phones (rail only - the open panel is untouched).
+  if (window.matchMedia) {
+    window.matchMedia('(max-width: 640px)').addEventListener('change', () => renderTextTools());
+  }
   renderTextTools();
   renderTextPanel();
 }
 
 function renderTextTools() {
+  const narrow = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
   $('text-toolbar').innerHTML = TEXT_TOOLS.map((t) =>
-    `<button type="button" class="audio-tool-btn${activeTool === t.id ? ' active' : ''}" data-tool="${t.id}">${t.label}</button>`
+    `<button type="button" class="audio-tool-btn${activeTool === t.id ? ' active' : ''}" data-tool="${t.id}">${narrow && t.short ? t.short : t.label}</button>`
   ).join('');
 }
 

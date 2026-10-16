@@ -24,10 +24,10 @@ const PDF_WARN_BYTES = 150 * 1024 * 1024;
 const PDF_HARD_BYTES = 500 * 1024 * 1024;
 
 export const PDF_TOOLS = [
-  { id: 'merge', label: '🔗 Merge PDFs' },
-  { id: 'split', label: '✂️ Split / Extract' },
-  { id: 'images', label: '🖼️ Images → PDF' },
-  { id: 'rotate', label: '🔄 Rotate Pages' },
+  { id: 'merge', label: '🔗 Merge PDFs', short: '🔗 Merge' },
+  { id: 'split', label: '✂️ Split / Extract', short: '✂️ Split' },
+  { id: 'images', label: '🖼️ Images → PDF', short: '🖼️ Images' },
+  { id: 'rotate', label: '🔄 Rotate Pages', short: '🔄 Rotate' },
 ];
 
 const state = {
@@ -139,6 +139,10 @@ export function setupPdfTab() {
     renderPdfTools();
     renderPdfPanel();
   });
+  // Shorter rail labels on phones (rail only - the open panel is untouched).
+  if (window.matchMedia) {
+    window.matchMedia('(max-width: 640px)').addEventListener('change', () => renderPdfTools());
+  }
   $('pdf-clear-results').addEventListener('click', clearResults);
   document.getElementById('tab-btn-pdf').addEventListener('click', () => {
     ensurePdfLib().catch(() => {});
@@ -188,6 +192,7 @@ function renderFileList() {
 function renderPdfTools() {
   const nPdf = pdfs().length;
   const nImg = images().length;
+  const narrow = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
   $('pdf-toolbar').innerHTML = PDF_TOOLS.map((t) => {
     let disabled = false;
     let why = '';
@@ -201,7 +206,7 @@ function renderPdfTools() {
       disabled = nImg < 1;
       why = 'Load at least 1 image (PNG/JPG/WEBP).';
     }
-    return `<button type="button" class="audio-tool-btn${state.tool === t.id ? ' active' : ''}" data-tool="${t.id}"${disabled ? ' disabled' : ''}${why && disabled ? ` title="${escapeHtml(why)}"` : ''}>${t.label}</button>`;
+    return `<button type="button" class="audio-tool-btn${state.tool === t.id ? ' active' : ''}" data-tool="${t.id}"${disabled ? ' disabled' : ''}${why && disabled ? ` title="${escapeHtml(why)}"` : ''}>${narrow && t.short ? t.short : t.label}</button>`;
   }).join('');
 }
 

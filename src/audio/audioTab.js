@@ -263,6 +263,11 @@ export function setupAudioTab() {
     renderTools();
     renderPanel();
   });
+  // Shorter rail labels on phones (rail only - the open panel is untouched,
+  // so no input state is ever lost on rotate/resize).
+  if (window.matchMedia) {
+    window.matchMedia('(max-width: 640px)').addEventListener('change', () => renderTools());
+  }
 
   $('audio-run').addEventListener('click', runTool);
   $('audio-clear-results').addEventListener('click', clearResults);
@@ -805,6 +810,7 @@ function renderTools() {
   const item = activeFile();
   const audioCount = state.files.filter((f) => !f.isVideo && !f.isImage).length;
   const imageCount = state.files.filter((f) => f.isImage).length;
+  const narrow = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
   const bar = $('audio-toolbar');
   bar.innerHTML = ops.TOOLS.map((t) => {
     let disabled = false;
@@ -829,7 +835,7 @@ function renderTools() {
       why = 'Tags work on MP3/M4A/AAC/OGG/OPUS/FLAC. For a video, run Extract Audio first, then tag the result.';
     }
     const title = disabled ? why : '';
-    return `<button type="button" class="audio-tool-btn${state.tool === t.id ? ' active' : ''}" data-tool="${t.id}"${disabled ? ' disabled' : ''}${title ? ` title="${escapeHtml(title)}"` : ''}>${t.label}</button>`;
+    return `<button type="button" class="audio-tool-btn${state.tool === t.id ? ' active' : ''}" data-tool="${t.id}"${disabled ? ' disabled' : ''}${title ? ` title="${escapeHtml(title)}"` : ''}>${narrow && t.short ? t.short : t.label}</button>`;
   }).join('');
 }
 
