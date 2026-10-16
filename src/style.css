@@ -1072,39 +1072,44 @@ html {
     padding: 7px 6px;
     font-size: 0.7rem;
     gap: 3px;
-    /* Squeeze all 8 tabs in first; the row still scrolls as a fallback. */
+    /* Icon rail on phones: labels hide except on the active tab, so all 8
+       fit with room to spare. The row still scrolls as a fallback. */
     flex: 1 1 0;
     min-width: 0;
     justify-content: center;
   }
 
-  .tab-label {
+  .nav-tab .tab-label {
+    display: none;
+  }
+
+  .nav-tab.active .tab-label {
+    display: inline;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .tab-icon {
-    font-size: 0.95rem;
+    font-size: 1.05rem;
   }
 }
 
 @media (max-width: 420px) {
+  /* Icons stay visible (they ARE the navigation now); tighter still. */
   .tab-icon {
-    display: none;
+    font-size: 1rem;
   }
 
-  /* All 8 short tabs should fit without scrolling; the row still scrolls
-     as a fallback on very narrow screens (overflow-x:auto above). */
   .nav-tabs {
-    gap: 3px;
-    padding: 5px 4px;
+    gap: 2px;
+    padding: 5px 3px;
   }
 
   .nav-tab {
     flex: 1 1 0;
     min-width: 0;
-    padding: 7px 4px;
-    font-size: 0.64rem;
+    padding: 7px 2px;
+    font-size: 0.62rem;
   }
 
   .logo-text {

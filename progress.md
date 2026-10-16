@@ -477,3 +477,9 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 ## Palette click-to-sample eyedropper
 - The Palette tool gained a sampling mode: toggle it, click any pixel on the photo, get HEX + RGB + coordinates in a swatch, tap to copy. Coordinates clamp to the canvas; the overlay listener dies with the overlay node on tool switch (clearOverlay clones it), and the cursor resets when toggled off.
 - Verified: build green; **sample E2E 7/7** - red half reads #ff0000 @75,100, blue half #0000ff @225,100 (exact centers, so the client-to-canvas mapping is pixel-perfect), copy works, toggle off clean. 0 page errors.
+
+## Icon-only mobile nav (user call: text cannot fit 8 tabs on a phone)
+- Phones (<=640px) show icon buttons; only the ACTIVE tab keeps its short label, so the current location is always readable and all 8 fit with room. Desktop unchanged (full short labels). Every button gained aria-label + title since icons alone (especially `{ }`) are cryptic.
+- <=420px no longer hides icons (they ARE the navigation now), just tightens spacing.
+- Verified in the mobile audit: icon rail + aria labels + fit at 390px, all 8 labels back at desktop width. 0 page errors.
+- Infra note: a long-lived headless profile eventually wedges CDP (hangs with no error) - wipe edge-profile and restart when evaluates start timing out; also gave the E2E harness a 60s CDP timeout so it fails fast with a label instead of hanging forever.
