@@ -20,6 +20,15 @@ let history = [];
 let histIndex = -1;
 let activeTool = null;
 let toolState = {};
+let activeCamStream = null; // live webcam preview, if the camera tool is open
+
+/** Stop a running camera preview (tool switch, new upload). Tracks leak otherwise. */
+function stopActiveCapture() {
+  if (activeCamStream) {
+    activeCamStream.getTracks().forEach((t) => { try { t.stop(); } catch (_) { /* ignore */ } });
+    activeCamStream = null;
+  }
+}
 
 function toast(msg) {
   let t = document.getElementById('app-toast');
@@ -98,6 +107,7 @@ export function setupImageEditor() {
 
 // ---------- Image loading ----------
 function loadImageFile(file) {
+  stopActiveCapture();
   originalBlob = file;
   const reader = new FileReader();
   reader.onload = () => {
@@ -209,6 +219,7 @@ function closeTool() {
   controlsEl.innerHTML = '<p class="editor-hint">Pick a tool above to start editing.</p>';
 }
 function openTool(tool) {
+  stopActiveCapture();
   if (!editorCanvas.width) return;
   // snapshot current state as the preview base
   if (toolBaseCanvas) toolBaseCanvas.width = editorCanvas.width, (toolBaseCanvas.height = editorCanvas.height);
@@ -220,7 +231,8 @@ function openTool(tool) {
   clearOverlay();
   ({ filters: openFilters, text: openText, crop: openCrop, resize: openResize, compress: openCompress, bg: openBg, magic: openMagic, aiupscale: openAiUpscale,
     watermark: openWatermark, pixelate: openPixelate, shapecrop: openShapeCrop, meme: openMeme,
-    gridsplit: openGridSplit, palette: openPalette, exif: openExif, collage: openCollage }[tool] || closeTool)();
+    gridsplit: openGridSplit, palette: openPalette, exif: openExif, collage: openCollage,
+    camphoto: openCamPhoto }[tool] || closeTool)();
 }
 
 // ---------- Filters / Adjust ----------
@@ -1432,6 +1444,69 @@ function openCollage() {
   });
   controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => { pushHistory(); closeTool(); });
   render();
+}
+
+// ---------- Camera snapshot ----------
+function openCamPhoto() {
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">📷 Camera Snapshot</h3>
+    <video id="cam-live" muted playsinline style="width:100%;border-radius:10px;background:#000" hidden></video>
+    <label class="control-label" for="cam-facing">Camera</label>
+    <select id="cam-facing" class="form-select">
+      <option value="user">Front / selfie</option>
+      <option value="environment">Back / document</option>
+    </select>
+    <div class="editor-actions">
+      <button type="button" class="btn-secondary" id="cam-start">Start camera</button>
+      <button type="button" class="btn-primary" id="cam-shot" disabled>Capture photo</button>
+    </div>
+    <p class="editor-hint" id="cam-status">Your camera never leaves this device - frames are captured locally.</p>
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="close">Close</button>
+    </div>`;
+  const video = $('cam-live');
+  const status = $('cam-status');
+  const startBtn = $('cam-start'), shotBtn = $('cam-shot');
+  const stopCam = () => {
+    stopActiveCapture();
+    video.srcObject = null;
+    video.hidden = true;
+    shotBtn.disabled = true;
+    startBtn.disabled = false;
+  };
+  startBtn.addEventListener('click', async () => {
+    stopCam();
+    status.textContent = 'Requesting camera…';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: $('cam-facing').value }, audio: false });
+      activeCamStream = stream;
+      video.srcObject = stream;
+      video.hidden = false;
+      await video.play();
+      status.textContent = 'Live - frame the shot, then Capture.';
+      startBtn.disabled = true;
+      shotBtn.disabled = false;
+    } catch (err) {
+      status.textContent = 'Camera unavailable: ' + (err && err.message ? err.message : err);
+    }
+  });
+  shotBtn.addEventListener('click', () => {
+    if (!video.videoWidth) { toast('No frame yet - wait a second and retry.'); return; }
+    const sc = Math.min(1, EDITOR_MAX_DIM / Math.max(video.videoWidth, video.videoHeight));
+    editorCanvas.width = Math.round(video.videoWidth * sc);
+    editorCanvas.height = Math.round(video.videoHeight * sc);
+    editorCtx.drawImage(video, 0, 0, editorCanvas.width, editorCanvas.height);
+    const snap = snapshot();
+    history = [snap];
+    histIndex = 0;
+    originalImageData = snap;
+    updateHistoryButtons();
+    editorCanvas.toBlob((b) => { if (b) originalBlob = new File([b], 'camera-shot.png', { type: 'image/png' }); }, 'image/png');
+    stopCam();
+    status.textContent = 'Captured! Download it with the button below the canvas.';
+    toast('Photo captured into the editor');
+  });
+  controlsEl.querySelector('[data-act=close]').addEventListener('click', () => { stopCam(); closeTool(); });
 }
 
 async function exportDownload() {

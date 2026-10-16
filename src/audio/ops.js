@@ -565,6 +565,7 @@ export const TOOLS = [
   { id: 'ringtone', label: '📞 Ringtone' },
   { id: 'bpm', label: '🪘 BPM Tapper' },
   { id: 'record', label: '🎙 Record (mic)' },
+  { id: 'screen', label: '🎥 Screen Record' },
   { id: 'split', label: '✂️ Split on silence' },
   { id: 'vmute', label: '🔇 Mute audio' },
   { id: 'vrotate', label: '🔄 Rotate/Flip' },

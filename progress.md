@@ -15,7 +15,7 @@ no paid API, no server, no LLM, nothing leaves the device.
 - **Phase 5 - DONE**: Image extras - EXIF viewer, watermark, meme, circle/rounded crop, grid splitter, palette, collage, manual pixelate (16 editor tools). maker, manual pixelate.
 - **Phase 6 - DONE**: Text + dev tools tab (13 utilities, 7th tab).
 - **Phase 7 - DONE**: PDF mini-suite (new 8th tab: merge, split/extract, images->PDF, rotate).
-- **Phase 8**: Capture - screen recorder, webcam snapshots, voice notes into the audio toolbox.
+- **Phase 8 - DONE**: Capture - screen recorder, webcam snapshots, voice notes (all land in the toolbox/editor).
 - **Phase 9**: UX multipliers - install prompt, share-target, recent files, keyboard shortcuts.
 
 ### Core-capability probe (headless Edge, pinned @ffmpeg/core 0.12.10)
@@ -439,3 +439,11 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 - pdf-lib (~600 KB) is genuinely lazy: pdfTab never imports pdftools statically (dynamic import on first need, warmed on tab open). dist proves it - `pdftools-*.js` is its own 412 KB chunk, main bundle untouched.
 - Bugs the tests caught: a falsy-`0` bug in the range validator (`if (bad)` missed page 0 - now `!== undefined`), a stale `MAX_SPLIT_PAGES` reference after the lazy refactor (would have 500'd split-all at runtime), and a duplicate `ensurePdfLib` from a half-applied cleanup.
 - Verified: build green; **26 Node checks** (spec matrix incl. reversed/garbage/out-of-range, merge 2+3=5, extract order, rotations, A4 geometry); **headless-Edge 12/12** - merged 5 pages, extracted 2, bad range refused, 3-page ZIP, 2-image PDF, 90/90 rotations read back. 0 page errors.
+
+## PHASE 8: Capture (mic already shipped in Phase 3 - verified here; screen + camera new)
+- **Screen recorder** (25th audio tool): getDisplayMedia video+optional audio, VP8/Opus webm (MP4 fallback by mime), 10-min cap with countdown, Cancel-wait state so a hanging picker never strands the UI, auto-save when the user ends the share from the browser bar, unsupported browsers get an honest note instead of a dead button. Clips land in the file list as videos, so trim/mute/extract all apply.
+- **Webcam snapshot** (17th editor tool): live preview, front/back select, capture replaces the canvas with fresh-image history semantics, tracks always stopped on tool switch/new upload (leak-proofed in openTool + loadImageFile), captured frame stashed as the original file so EXIF view stays coherent.
+- **Voice notes**: the Phase 3 mic recorder verified end to end - device list, live recording, webm lands in the list, and the recording cuts like any upload.
+- Panel-only tools (record/screen/bpm) now refuse Process with a plain message instead of firing an empty ffmpeg run (pre-existing wart: ffmpeg got `args: []` and errored).
+- Headless reality: getDisplayMedia has no picker headless (hangs pre-fix, NotSupportedError with auto-select) - E2E covers the wait/cancel path; the MediaRecorder->file code is shared with the mic path, which is verified with real bytes. CDP `Browser.grantPermissions` + fake devices is the recipe for mic/cam E2E.
+- Verified: build green; audio/pdf suites still green (no ops changes); **headless-Edge 15/15** - grant, 25 tools, mic listed/recorded/saved/cut, screen wait/cancel clean, 640x480 live preview, snapshot dims match, history reset. 0 page errors.

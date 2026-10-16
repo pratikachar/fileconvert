@@ -1185,6 +1185,92 @@ function renderPanel() {
     return;
   }
 
+  if (t === 'screen') {
+    const supported = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && typeof MediaRecorder !== 'undefined';
+    el.innerHTML =
+      `<h3 class="controls-title">Record the screen</h3>` +
+      `<p class="field-hint">Captures a screen, window or browser tab - your browser asks which one after you press Start. Everything stays on this device; the clip lands in the file list as a video. Max ten minutes per take.</p>` +
+      (supported ? '' : `<p class="au-warn">This browser cannot capture the screen here (needs screen-capture + MediaRecorder - some WebViews and older browsers lack it).</p>`) +
+      `<label class="control-inline"><input type="checkbox" id="ao-sc-audio" checked /> Capture audio too (system sound, where the browser offers it)</label>` +
+      `<div class="option-button-group" style="margin-top:10px">` +
+        `<button type="button" class="btn-primary" id="ao-sc-start"${supported ? '' : ' disabled'}>Start capture</button>` +
+        `<button type="button" class="btn-secondary" id="ao-sc-wait" disabled>Cancel wait</button>` +
+        `<button type="button" class="btn-secondary" id="ao-sc-stop" disabled>Stop</button>` +
+      `</div>` +
+      `<p id="ao-sc-status" class="field-hint" style="margin-top:8px">Not recording.</p>`;
+    if (!supported) return;
+    const status = $('ao-sc-status');
+    const startBtn = $('ao-sc-start'), waitBtn = $('ao-sc-wait'), stopBtn = $('ao-sc-stop');
+    let rec = null, chunks = [], stream = null, startedAt = 0, tick = null, waitToken = 0, capTimer = null;
+    const setIdle = (msg) => {
+      clearInterval(tick); tick = null;
+      clearTimeout(capTimer); capTimer = null;
+      startBtn.disabled = false; waitBtn.disabled = true; stopBtn.disabled = true;
+      if (msg) status.textContent = msg;
+    };
+    const finish = (note) => {
+      try {
+        const type = (rec && rec.mimeType) || 'video/webm';
+        const ext = /mp4/.test(type) ? 'mp4' : 'webm';
+        const blob = new Blob(chunks, { type });
+        if (blob.size > 0) {
+          const file = new File([blob], `screen-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`, { type });
+          addFiles([file]);
+          status.textContent = `Saved ${formatBytes(file.size)}${note ? ' - ' + note : ''} - select it in the file list.`;
+        } else {
+          status.textContent = 'Nothing was captured' + (note ? ` (${note})` : '') + '.';
+        }
+      } catch (err) {
+        status.textContent = 'Save failed: ' + (err && err.message ? err.message : err);
+      }
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      stream = null; rec = null; chunks = [];
+      setIdle();
+    };
+    startBtn.addEventListener('click', async () => {
+      const myWait = ++waitToken;
+      startBtn.disabled = true; waitBtn.disabled = false;
+      status.textContent = 'Waiting for you to pick a screen, window or tab…';
+      let sc = null;
+      try {
+        sc = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: $('ao-sc-audio').checked });
+      } catch (err) {
+        if (myWait !== waitToken) return; // user cancelled the wait meanwhile
+        setIdle('Screen pick cancelled or unavailable: ' + (err && err.message ? err.message : err));
+        return;
+      }
+      if (myWait !== waitToken) { sc.getTracks().forEach((t) => t.stop()); return; } // picked after cancelling
+      stream = sc;
+      if ($('ao-sc-audio').checked && !stream.getAudioTracks().length) toast('This share has no audio track - recording video only.');
+      const mt = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') ? 'video/webm;codecs=vp8,opus' :
+                 MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : '';
+      try {
+        rec = mt ? new MediaRecorder(stream, { mimeType: mt, videoBitsPerSecond: 2500000 }) : new MediaRecorder(stream);
+      } catch (err) {
+        setIdle('Recorder failed: ' + (err && err.message ? err.message : err));
+        stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+        return;
+      }
+      chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop = () => finish();
+      // Stopping the share from the browser bar saves whatever was captured.
+      stream.getVideoTracks().forEach((tr) => { tr.onended = () => { if (rec && rec.state === 'recording') { rec.stop(); toast('Share ended - saved what was captured.'); } }; });
+      rec.start(500);
+      startedAt = Date.now();
+      waitBtn.disabled = true; stopBtn.disabled = false;
+      tick = setInterval(() => {
+        const sec = (Date.now() - startedAt) / 1000;
+        status.textContent = `Recording screen… ${sec.toFixed(0)}s / 600s max`;
+      }, 500);
+      capTimer = setTimeout(() => { if (rec && rec.state === 'recording') { rec.stop(); toast('Reached the 10-minute cap - saved.'); } }, 600000);
+    });
+    waitBtn.addEventListener('click', () => { waitToken++; setIdle('Screen pick cancelled.'); });
+    stopBtn.addEventListener('click', () => { if (rec && rec.state !== 'inactive') rec.stop(); });
+    return;
+  }
+
   if (t === 'split') {
     const item = activeFile();
     el.innerHTML = `
@@ -1670,6 +1756,11 @@ async function runTool() {
     let outName = '';
     let downloadName = `${base}-${state.tool}.${outExt}`;
     let precomputedRes = null;
+
+    if (state.tool === 'record' || state.tool === 'screen' || state.tool === 'bpm') {
+      bailRun('This tool works from its own panel buttons - there is nothing to process.');
+      return;
+    }
 
     if (state.tool === 'merge') {
       const mergeItems = state.files.filter((f) => !f.isVideo && !f.isImage);
