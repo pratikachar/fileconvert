@@ -8,6 +8,7 @@ import { resizeLanczos } from './resample.js';
 import { scanBuffer, formatFromName } from '../metadataRemover.js';
 import JSZip from 'jszip';
 import { extractPalette } from './palette.js';
+import { recognizeImage, ocrSizeMB } from './ocr.js';
 
 const EDITOR_MAX_DIM = 2400;
 const HISTORY_LIMIT = 25;
@@ -234,7 +235,7 @@ function openTool(tool) {
   ({ filters: openFilters, text: openText, crop: openCrop, resize: openResize, compress: openCompress, bg: openBg, magic: openMagic, aiupscale: openAiUpscale,
     watermark: openWatermark, pixelate: openPixelate, shapecrop: openShapeCrop, meme: openMeme,
     gridsplit: openGridSplit, palette: openPalette, exif: openExif, collage: openCollage,
-    camphoto: openCamPhoto }[tool] || closeTool)();
+    camphoto: openCamPhoto, ocr: openOcr }[tool] || closeTool)();
 }
 
 // ---------- Filters / Adjust ----------
@@ -1509,6 +1510,57 @@ function openCamPhoto() {
     toast('Photo captured into the editor');
   });
   controlsEl.querySelector('[data-act=close]').addEventListener('click', () => { stopCam(); closeTool(); });
+}
+
+// ---------- OCR (extract printed text) ----------
+async function openOcr() {
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">📝 OCR - Image to Text</h3>
+    <p class="editor-hint">Reads printed English text out of the photo. Best on high-contrast scans and screenshots.</p>
+    <div class="editor-actions">
+      <button type="button" class="btn-primary" id="ocr-go">Extract text</button>
+    </div>
+    <p class="editor-hint" id="ocr-status"></p>
+    <label class="control-label" for="ocr-result">Recognized text</label>
+    <textarea id="ocr-result" class="form-textarea" rows="8" readonly placeholder="The text lands here…"></textarea>
+    <p class="editor-hint" id="ocr-stats"></p>
+    <div class="editor-actions">
+      <button type="button" class="btn-secondary" id="ocr-copy">Copy text</button>
+      <button class="btn-secondary" data-act="close">Close</button>
+    </div>
+    <p class="field-hint">Free and offline after the one-time ~${ocrSizeMB()} MB engine download. Handwriting and decorative fonts will not read well - that is a limit of the engine, not a bug.</p>`;
+  controlsEl.querySelector('[data-act=close]').addEventListener('click', closeTool);
+  $('ocr-copy').addEventListener('click', async () => {
+    const v = $('ocr-result').value;
+    if (!v) { toast('Nothing to copy yet'); return; }
+    try {
+      await navigator.clipboard.writeText(v);
+      toast('Text copied');
+    } catch {
+      toast('Clipboard blocked - select and copy manually');
+    }
+  });
+  $('ocr-go').addEventListener('click', async () => {
+    setLoading(true, 'Preparing the OCR engine…');
+    try {
+      const res = await recognizeImage(editorCanvas, (m) => {
+        const pct = Math.round(((m && m.progress) || 0) * 100);
+        const label = !m || !m.status ? 'Loading' : m.status === 'recognizing text' ? 'Reading text' : m.status;
+        setLoading(true, `${label}… ${pct}%`);
+      });
+      $('ocr-result').value = res.text;
+      $('ocr-stats').textContent = res.text
+        ? `${res.words} words · ${res.text.length} chars · confidence ${res.confidence}%`
+        : 'No text found - try a sharper, higher-contrast image.';
+      $('ocr-status').textContent = '';
+    } catch (err) {
+      console.error('OCR failed:', err);
+      $('ocr-status').textContent = '';
+      toast('OCR failed: ' + (err && err.message ? err.message : err));
+    } finally {
+      setLoading(false);
+    }
+  });
 }
 
 async function exportDownload() {
