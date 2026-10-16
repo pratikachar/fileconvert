@@ -87,6 +87,13 @@ export async function getFFmpeg(onProgress = () => {}) {
  * True when the error is a wasm-engine trap (not an ordinary bad-arguments or
  * missing-file failure). Pure and Node-testable.
  */
+export function getRecentFFmpegLogs() {
+  return recentLogs.slice();
+}
+export function clearFFmpegLogs() {
+  recentLogs.length = 0;
+}
+
 export function isWasmTrapError(err) {
   const msg = String((err && err.message) || err || '');
   if (/No such file|Invalid (argument|data)|not found|exited with code/i.test(msg)) return false;

@@ -3,7 +3,7 @@
  * Everything runs client-side on the shared FFmpeg singleton.
  */
 
-import { runFFmpeg, fsName, getFFmpeg, resetFFmpegEngine, isFFmpegLoaded, isFFmpegLoading } from '../converters/media.js';
+import { runFFmpeg, fsName, getFFmpeg, resetFFmpegEngine, isFFmpegLoaded, isFFmpegLoading, getRecentFFmpegLogs as getFFmpegLogs, clearFFmpegLogs } from '../converters/media.js';
 import * as ops from './ops.js';
 import {
   computePeaks,
@@ -1090,6 +1090,92 @@ function renderPanel() {
 
 
 
+
+  if (t === 'record') {
+    el.innerHTML =
+      `<h3 class="controls-title">Record from microphone</h3>` +
+      `<p class="field-hint">Records locally in your browser via the system mic. Supports choosing the input device when the browser allows it. Stops and adds the recording as a normal file. Max six minutes; re-encode afterwards for format/trim.</p>` +
+      `<label class="control-label" for="ao-rec-device">Microphone</label>` +
+      `<select id="ao-rec-device" class="form-select"></select>` +
+      `<div class="option-button-group" style="margin-top:10px">` +
+        `<button type="button" class="btn-primary" id="ao-rec-start">Start recording</button>` +
+        `<button type="button" class="btn-secondary" id="ao-rec-stop" disabled>Stop</button>` +
+      `</div>` +
+      `<p id="ao-rec-status" class="field-hint" style="margin-top:8px">Not recording.</p>`;
+    const status = $('ao-rec-status');
+    const deviceSel = $('ao-rec-device');
+    const populateDevices = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+      } catch (err) {
+        status.textContent = 'Microphone permission denied or unavailable: ' + (err && err.message ? err.message : err);
+        return;
+      }
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const mics = devs.filter((d) => d.kind === 'audioinput');
+      deviceSel.innerHTML = mics.map((d, i) => `<option value="${d.deviceId}">${escapeHtml(d.label || 'Mic ' + (i + 1))}</option>`).join('');
+      if (!mics.length) status.textContent = 'No microphone detected.';
+    };
+    populateDevices().catch((e) => { status.textContent = 'Device list failed: ' + e.message; });
+    const startBtn = $('ao-rec-start');
+    const stopBtn = $('ao-rec-stop');
+    let rec = null, chunks = [], stream = null, startedAt = 0, tick = null;
+    startBtn.addEventListener('click', async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: deviceSel.value ? { deviceId: { exact: deviceSel.value } } : true });
+        const mt = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' :
+                  MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+        rec = mt ? new MediaRecorder(stream, { mimeType: mt }) : new MediaRecorder(stream);
+        chunks = [];
+        rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+        rec.onstop = async () => {
+          const type = rec.mimeType || 'audio/webm';
+          const ext = type.includes('mp4') ? 'm4a' : 'webm';
+          const blob = new Blob(chunks, { type });
+          const file = new File([blob], `recording-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`, { type });
+          addFiles([file]);
+          status.textContent = `Saved ${formatBytes(file.size)} - select it in the file list.`;
+          stream.getTracks().forEach((t) => t.stop());
+          stream = null;
+        };
+        rec.start(200);
+        startedAt = Date.now();
+        tick = setInterval(() => {
+          const sec = (Date.now() - startedAt) / 1000;
+          status.textContent = `Recording... ${sec.toFixed(1)}s${sec > 300 ? '  (auto stop at 6 min)' : ''}`;
+        }, 250);
+        setTimeout(() => { if (rec && rec.state === 'recording') stopBtn.click(); }, 360000);
+        startBtn.disabled = true; stopBtn.disabled = false; stopBtn.classList.remove('hidden');
+      } catch (err) {
+        status.textContent = 'Recording failed: ' + (err && err.message ? err.message : err);
+        if (stream) stream.getTracks().forEach((t) => t.stop());
+      }
+    });
+    stopBtn.addEventListener('click', () => {
+      if (rec && rec.state !== 'inactive') rec.stop();
+      clearInterval(tick);
+      tick = null;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+    });
+    return;
+  }
+
+  if (t === 'split') {
+    const item = activeFile();
+    el.innerHTML = `
+      <p class="field-hint">Detects silence and exports each non-silent segment as its own result. Configure the cut limits below.</p>
+      <label class="control-label" for="ao-sp-thr">Silence threshold (dB, default -40)</label>
+      <input type="number" id="ao-sp-thr" class="form-input" step="1" value="-40" min="-80" max="0" />
+      <label class="control-label" for="ao-sp-min">Minimum silence length (s)</label>
+      <input type="number" id="ao-sp-min" class="form-input" step="0.1" value="0.4" min="0.1" max="10" />
+      <label class="control-label" for="ao-sp-pad">Padding kept around each segment (s)</label>
+      <input type="number" id="ao-sp-pad" class="form-input" step="0.05" value="0.08" min="0" max="1" />
+      <p class="field-hint">Uses silencedetect plus FFmpeg cuts. A very loud or continuous track may yield a single segment (nothing to split).</p>`;
+    return;
+  }
+
   if (t === 'denoise') {
     const presets = Object.entries(ops.DENOISE_PRESETS)
       .map(([id, p]) => `<option value="${id}"${id === 'standard' ? ' selected' : ''}>${p.label} - ${p.desc}</option>`)
@@ -1223,6 +1309,7 @@ function readPanel() {
   }
   if (t === 'speed') return { rate: num('ao-rate', 1), semitones: num('ao-pitch', 0) };
   if (t === 'silence') return { thresholdDb: num('ao-threshold', -45), minSilence: num('ao-minsil', 0.4), keepPad: num('ao-pad', 0.15) };
+  if (t === 'split') return { thresholdDb: num('ao-sp-thr', -40), minSilence: num('ao-sp-min', 0.4), pad: num('ao-sp-pad', 0.08) };
   if (t === 'denoise') {
     return {
       preset: ($('ao-dn-preset') || {}).value || 'standard',
@@ -1497,6 +1584,66 @@ async function runTool() {
         args = ops.buildExtractAudio({ inName, outName, outExt, bitrate: br });
       } else if (state.tool === 'silence') {
         args = ops.buildSilenceTrim({ inName, outName, thresholdDb: o.thresholdDb, minSilence: o.minSilence, keepPad: o.keepPad, outExt, bitrate: br });
+      } else if (state.tool === 'split') {
+        const thr = Number(o.thresholdDb || -40);
+        const minSil = Number(o.minSilence) || 0.4;
+        clearFFmpegLogs();
+        try {
+          await runFFmpeg({
+            args: ['-i', inName, '-af', 'silencedetect=noise=' + thr + 'dB:d=' + minSil, '-f', 'null', '-'],
+            inputs: [{ name: inName, file: item.file }],
+            outputs: [],
+            onProgress: (f, m) => { bar.style.width = (Math.round(f * 100)) + '%'; text.textContent = m || 'Detecting silence...'; },
+          });
+        } catch (e) {
+          bailRun('Silence detection failed: ' + (e && e.message ? e.message : e));
+          return;
+        }
+        const logs = getFFmpegLogs();
+        const silences = [];
+        let cur = null;
+        for (const l of logs) {
+          const ms = l.match(/silence_start:\s*([\d.]+)/);
+          if (ms) { cur = { start: parseFloat(ms[1]) }; continue; }
+          const me = cur && l.match(/silence_end:\s*([\d.]+)/);
+          if (me) { cur.end = parseFloat(me[1]); silences.push(cur); cur = null; }
+        }
+        const duration = item.duration || 0;
+        const pad = Number(o.pad) || 0.08;
+        const segs = [];
+        let cursor = 0;
+        for (const sl of silences) {
+          const segEnd = Math.max(cursor, sl.start - pad);
+          if (segEnd - cursor >= 0.35) segs.push({ s: cursor, e: segEnd });
+          cursor = Math.min(duration, (sl.end != null ? sl.end : sl.start) + pad);
+        }
+        if (duration - cursor >= 0.35) segs.push({ s: cursor, e: duration });
+        if (!segs.length) segs.push({ s: 0, e: duration });
+        const outExt2 = item.isVideo ? item.ext : outExt;
+        const mime2 = item.isVideo ? (ops.VIDEO_MIME_TYPES[outExt2] || 'video/mp4') : ((ops.AUDIO_OUT_FORMATS.find((f) => f.ext === outExt2) || {}).mime || mime);
+        let count = 0;
+        for (let i = 0; i < segs.length; i++) {
+          const seg = segs[i];
+          const sN = fsName('sg_' + i + '.' + item.ext);
+          const oN = fsName('out_' + i + '.' + outExt2);
+          const a = item.isVideo
+            ? ops.buildVideoTrim({ inName: sN, outName: oN, start: seg.s, end: seg.e, keepVideo: true, keepAudio: true })
+            : ops.buildTrim({ inName: sN, outName: oN, start: seg.s, end: seg.e, outExt: outExt2, bitrate: br, lossless: false, audioOnly: item.isVideo });
+          const [res] = await runFFmpeg({
+            args: a, inputs: [{ name: sN, file: item.file }], outputs: [{ name: oN, type: mime2 }],
+            onProgress: (f) => { bar.style.width = (Math.round((i + f) / segs.length * 100)) + '%'; text.textContent = 'Splitting segment ' + (i + 1) + '/' + segs.length; },
+          });
+          addResult(base + '-part' + (i + 1) + '.' + outExt2, res.bytes, mime2);
+          count++;
+        }
+        text.textContent = 'Split into ' + count + ' part' + (count === 1 ? '' : 's');
+        bar.style.width = '100%';
+        liveRunId = 0;
+        progress.classList.add('hidden');
+        stopElapsed();
+        $('audio-cancel').classList.add('hidden');
+        runBtn.disabled = false;
+        return;
       } else if (state.tool === 'denoise') {
         const videoMode = item.isVideo && o.videoOut;
         const guard = denoiseGuardrail(item, o);

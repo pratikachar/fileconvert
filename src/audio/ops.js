@@ -442,5 +442,7 @@ export const TOOLS = [
   { id: 'karaoke', label: '🎤 Karaoke vocal‑down' },
   { id: 'ringtone', label: '📞 Ringtone' },
   { id: 'bpm', label: '🪘 BPM Tapper' },
+  { id: 'record', label: '🎙 Record (mic)' },
+  { id: 'split', label: '✂️ Split on silence' },
   { id: 'tags', label: '🏷 Metadata', needsTaggable: true },
 ];
