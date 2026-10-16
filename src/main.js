@@ -19,6 +19,7 @@ import { renderQRCanvas, renderQRSVG } from './generators/qrGenerator.js';
 import { setupImageEditor } from './editors/imageEditor.js';
 import { setupAIMetadataRemover } from './metadataRemover.js';
 import { setupAudioTab } from './audio/audioTab.js';
+import { setupTextTab } from './texttools/textTab.js';
 
 // Helper DOM selector
 const $ = (sel) => document.querySelector(sel);
@@ -849,6 +850,7 @@ function init() {
   setupImageEditor();
   setupAIMetadataRemover();
   setupAudioTab();
+  setupTextTab();
   setupPasteUpload();
   registerServiceWorker();
 }

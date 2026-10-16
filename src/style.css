@@ -1836,6 +1836,73 @@ html {
   border-radius: 6px;
 }
 
+/* Text & dev tools outputs */
+.tt-out {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  font-size: 0.85rem;
+  max-height: 320px;
+  overflow: auto;
+}
+.tt-err {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.5);
+}
+.tt-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 8px 0;
+  font-size: 0.95rem;
+}
+.tt-diff {
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 8px;
+  margin: 8px 0;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tt-ds { color: var(--text-muted); }
+.tt-da { background: rgba(34, 197, 94, 0.12); color: #86efac; }
+.tt-dd { background: rgba(239, 68, 68, 0.12); color: #fca5a5; }
+.tt-md {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 8px 0;
+  max-height: 360px;
+  overflow: auto;
+}
+.tt-md pre {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 8px;
+  border-radius: 8px;
+  overflow: auto;
+}
+.tt-barcode {
+  display: flex;
+  justify-content: center;
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px;
+  margin: 8px 0;
+}
+.tt-barcode:empty {
+  display: none;
+}
+
 .editor-side {
   width: 320px;
   flex: 0 0 320px;

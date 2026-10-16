@@ -18,6 +18,7 @@
     "@imgly/background-removal": "^1.7.0",
     "@techstark/opencv-js": "^4.11.0-release.1",
     "js-yaml": "^4.1.0",
+    "jsbarcode": "^3.12.3",
     "jszip": "^3.10.1",
     "marked": "^15.0.7",
     "onnxruntime-web": "^1.21.0",

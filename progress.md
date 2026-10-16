@@ -13,7 +13,7 @@ no paid API, no server, no LLM, nothing leaves the device.
 - **Phase 3**: Audio extras - voice recorder (MediaRecorder), karaoke vocal reducer, ringtone maker, silence splitter, BPM tap counter.
 - **Phase 4**: Video utilities - lossless trim (shipped in P1), mute, rotate/flip, speed, WhatsApp compressor, extract frames, GIF->video, images->slideshow, replace audio track.
 - **Phase 5 - DONE**: Image extras - EXIF viewer, watermark, meme, circle/rounded crop, grid splitter, palette, collage, manual pixelate (16 editor tools). maker, manual pixelate.
-- **Phase 6**: Text + dev tools tab - JSON, Base64, JWT, password gen, word count, diff, markdown, barcodes, unit/timestamp, regex, colour.
+- **Phase 6 - DONE**: Text + dev tools tab (13 utilities, 7th tab).
 - **Phase 7**: PDF mini-suite - merge, split, images->PDF, rotate pages (pdf-lib).
 - **Phase 8**: Capture - screen recorder, webcam snapshots, voice notes into the audio toolbox.
 - **Phase 9**: UX multipliers - install prompt, share-target, recent files, keyboard shortcuts.
@@ -426,3 +426,9 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 - **Collage**: current photo seeded as #1, up to 4 photos via its own picker, 3 layouts (side-by-side/stacked/2x2), cover-fit cells, live canvas preview.
 - **History upgraded to dimension-aware snapshots** (`{w,h,data}` + `restoreSnap`): undo/redo/reset now restore canvas *size* too. This was a latent bug in crop/resize as well - putImageData cannot repaint a resized canvas, so undo after any resize left a broken canvas (caught by E2E: circle-undo stayed 200x200).
 - Verified: build green; **229 Node checks** (175 audio + 9 magic + 11 palette + 34 jpeg); **headless-Edge 22/22** - palette #ff0000, watermark/pixelate/meme pixel diffs with undo restoration, circle 200x200 + alpha-0 corners + dim restore, 9-tile ZIP toast, EXIF Make/Model read from a real spliced-APP1 JPEG, 2-photo collage at exactly 1600x800. 0 page errors. Magic Remove re-verified 14/14 after the history change.
+
+## PHASE 6: Text & Dev Tools (new 7th tab, all instant + local)
+- 13 utilities: JSON format/minify/validate (with position hints), Base64 (unicode-safe), URL codec, JWT decode (explicitly never verifies - says so), password generator (crypto RNG, never Math.random), live word count, line diff (LCS, capped at 2000 lines/side), Markdown preview (reused `marked`), barcodes (CODE128 + validated EAN-13, SVG download, JsBarcode lazy-imported so the ~100 KB only downloads on demand), unit converter (length/mass/data/temperature), timestamps both directions (s/ms auto-detect), regex tester (live matches + groups + clear errors), color converter (HEX/RGB/HSL all ways).
+- Pure logic in `src/texttools/texttools.js` (Node-tested); UI in `src/texttools/textTab.js`; tab wiring follows the auto-discovery nav (button + panel + one setup call).
+- Verified: build green (JsBarcode CJS bundles fine); **50 new Node checks**; **headless-Edge 24/24** incl. unicode Base64 round-trip, JWT payload + no-verify warning, live word/diff/markdown/regex/color, real CODE128 bar render, EAN digit validation, 5 km live conversion, epoch both ways. 0 page errors.
+- E2E lesson: cold dev boot (ffmpeg/imgly/onnx graph) takes longer than a fixed 3.5 s sleep - wait for the app-rendered rail, not wall time.
