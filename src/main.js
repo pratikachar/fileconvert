@@ -21,6 +21,9 @@ import { setupAIMetadataRemover } from './metadataRemover.js';
 import { setupAudioTab } from './audio/audioTab.js';
 import { setupTextTab } from './texttools/textTab.js';
 import { setupPdfTab } from './pdftools/pdfTab.js';
+import { setupInstall } from './utils/install.js';
+import { takeInbox, routeShared } from './utils/sharedInbox.js';
+import { addRecent, listRecent, getRecent, clearRecent, timeAgo } from './utils/recentFiles.js';
 
 // Helper DOM selector
 const $ = (sel) => document.querySelector(sel);
@@ -150,6 +153,11 @@ function setupFileConverter() {
   });
 
   btnRemove.addEventListener('click', resetToUpload);
+  const recentClear = document.getElementById('recent-clear');
+  if (recentClear) recentClear.addEventListener('click', async () => {
+    try { await clearRecent(); } catch { /* ignore */ }
+    renderRecent();
+  });
 
   // Conversion options
   outputFormat.addEventListener('change', () => {
@@ -185,6 +193,8 @@ function handleFile(file) {
   }
 
   currentFile = file;
+  addRecent(file).catch(() => {});
+  renderRecent();
 
   const category = CATEGORIES[info.category];
   fileTypeIcon.textContent = category.icon;
@@ -211,6 +221,58 @@ function handleFile(file) {
   hideProgress();
   hideDownload();
   updateConvertButton();
+}
+
+async function renderRecent() {
+  const card = document.getElementById('recent-card');
+  const list = document.getElementById('recent-list');
+  if (!card || !list) return;
+  let items = [];
+  try {
+    items = await listRecent();
+  } catch {
+    card.classList.add('hidden');
+    return;
+  }
+  if (!items.length) {
+    card.classList.add('hidden');
+    return;
+  }
+  card.classList.remove('hidden');
+  list.innerHTML = '';
+  for (const it of items) {
+    const row = document.createElement('div');
+    row.className = 'audio-result';
+    const left = document.createElement('span');
+    left.className = 'ar-name';
+    left.textContent = it.name;
+    left.title = it.name;
+    const meta = document.createElement('span');
+    meta.className = 'ar-meta';
+    meta.textContent = `${formatFileSize(it.size)} · ${timeAgo(it.time)}`;
+    const acts = document.createElement('span');
+    acts.className = 'ar-actions';
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'btn-secondary btn-mini';
+    open.textContent = 'Reopen';
+    open.addEventListener('click', async () => {
+      try {
+        const f = await getRecent(it.id);
+        if (!f) {
+          showToast('That file is gone from recent.');
+          renderRecent();
+          return;
+        }
+        handleFile(f);
+      } catch {
+        showToast('Could not reopen that file.');
+      }
+    });
+    acts.appendChild(open);
+    row.append(left, meta, acts);
+    list.appendChild(row);
+  }
 }
 
 function populateOutputFormats(outputs, currentExt) {
@@ -853,8 +915,79 @@ function init() {
   setupAudioTab();
   setupTextTab();
   setupPdfTab();
+  setupInstall();
+  setupShortcuts();
+  window.__converterLoadFile = handleFile;
+  renderRecent();
   setupPasteUpload();
   registerServiceWorker();
+  intakeShared();
+}
+
+function gotoTab(name) {
+  const btn = document.querySelector(`#tab-btn-${name}`);
+  if (btn) btn.click();
+}
+
+/** Pick up files another app shared to us (service worker stashed them). */
+async function intakeShared() {
+  let params;
+  try {
+    params = new URLSearchParams(location.search);
+  } catch {
+    return;
+  }
+  if (!params.has('shared')) return;
+  try {
+    history.replaceState(null, '', location.pathname);
+  } catch { /* ignore */ }
+  let rows = [];
+  try {
+    rows = await takeInbox();
+  } catch {
+    showToast('Shared files could not be read.');
+    return;
+  }
+  if (!rows.length) {
+    showToast('Share received, but no files came through.');
+    return;
+  }
+  const counts = routeShared(rows, {
+    toEditor: (f) => window.__editorLoadFile && window.__editorLoadFile(f),
+    toAudio: (fs) => window.__audioAddFiles && window.__audioAddFiles(fs),
+    toPdf: (fs) => window.__pdfAddFiles && window.__pdfAddFiles(fs),
+    toConverter: (f) => handleFile(f),
+    toast: (m) => showToast(m),
+    gotoTab,
+  });
+  showToast(counts.length ? `Shared: ${counts.join(' · ')}` : 'Shared files received.');
+}
+
+function setupShortcuts() {
+  const order = ['converter', 'icon', 'qr', 'editor', 'ai', 'audio', 'text', 'pdf'];
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= order.length) {
+        e.preventDefault();
+        gotoTab(order[n - 1]);
+        return;
+      }
+    }
+    if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      document.getElementById('shortcuts-dialog').classList.toggle('hidden');
+      return;
+    }
+    if (e.key === 'Escape') {
+      document.getElementById('shortcuts-dialog').classList.add('hidden');
+    }
+  });
+  document.getElementById('shortcuts-close').addEventListener('click', () => {
+    document.getElementById('shortcuts-dialog').classList.add('hidden');
+  });
 }
 
 function setupPasteUpload() {

@@ -16,7 +16,7 @@ no paid API, no server, no LLM, nothing leaves the device.
 - **Phase 6 - DONE**: Text + dev tools tab (13 utilities, 7th tab).
 - **Phase 7 - DONE**: PDF mini-suite (new 8th tab: merge, split/extract, images->PDF, rotate).
 - **Phase 8 - DONE**: Capture - screen recorder, webcam snapshots, voice notes (all land in the toolbox/editor).
-- **Phase 9**: UX multipliers - install prompt, share-target, recent files, keyboard shortcuts.
+- **Phase 9 - DONE**: UX multipliers - install prompt, share target, recent files, keyboard shortcuts.
 
 ### Core-capability probe (headless Edge, pinned @ffmpeg/core 0.12.10)
 - Video encoders present: `libx264` OK, `mpeg4` OK, `libvpx-vp9` OK, `h264` OK.
@@ -447,3 +447,11 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 - Panel-only tools (record/screen/bpm) now refuse Process with a plain message instead of firing an empty ffmpeg run (pre-existing wart: ffmpeg got `args: []` and errored).
 - Headless reality: getDisplayMedia has no picker headless (hangs pre-fix, NotSupportedError with auto-select) - E2E covers the wait/cancel path; the MediaRecorder->file code is shared with the mic path, which is verified with real bytes. CDP `Browser.grantPermissions` + fake devices is the recipe for mic/cam E2E.
 - Verified: build green; audio/pdf suites still green (no ops changes); **headless-Edge 15/15** - grant, 25 tools, mic listed/recorded/saved/cut, screen wait/cancel clean, 640x480 live preview, snapshot dims match, history reset. 0 page errors.
+
+## PHASE 9: UX multipliers (install, share-target, recents, shortcuts)
+- **Install**: real PNG icons generated with Node zlib (`scripts/gen-icons.mjs`, committed, ~1-4 KB each) because Chrome never fires beforeinstallprompt on SVG alone; manifest now has 192/512 any+maskable PNGs. Always-visible Install button: uses the deferred prompt when offered, honest manual instructions otherwise (iOS-specific), hides once installed.
+- **Share-target**: manifest `share_target` (POST /_share) + `file_handlers`; sw.js intercepts the POST (network-only rule untouched otherwise), stashes files in its own tiny IDB, 303-redirects to `/?shared=1`; app intake (`takeInbox`/`routeShared` in `src/utils/sharedInbox.js`) routes images->editor, audio/video->toolbox, PDFs->PDF tools, rest->converter, then reports the routing. New hooks: `__editorLoadFile`, `__converterLoadFile` (audio/pdf hooks already existed).
+- **Recent files**: converter remembers up to 8 files (10 MB blob cap, IDB, local-only) with relative times, Reopen, Clear; survives reload; honest 10 MB note in the UI.
+- **Shortcuts**: Alt+1..8 switches the 8 tabs, `?` toggles a shortcuts dialog, Esc closes; dead while typing in any field.
+- Verified: build green; **15 new Node checks** (routing matrix incl. empty/missing-hook safety, timeAgo, caps); **headless-Edge 18/18** - manifest contents, icon decodes 512 with 22 tones, BIP flow with stub prompt, Alt+4/?/Esc/typing-guard, recent persist+reopen across reload, SW controlled in prod, POST bouncing, PNG->editor + PDF->tools routing with the intake summary. 0 page errors.
+- E2E notes: bare `import('pdf-lib')` is unresolvable in-page (bundled chunk) - the preview-side PDF fixture is a hand-rolled minimal PDF (verified it parses in Node first); main.js `showToast` uses `.toast-error`, not `#app-toast` (pre-existing dual toast systems, left alone).

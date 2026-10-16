@@ -66,6 +66,7 @@
             <span class="badge-dot"></span>
             <span>100% Free & Client-Side</span>
           </div>
+          <button id="install-btn" class="btn-secondary btn-mini" hidden>⬇ Install app</button>
         </div>
       </header>
 
@@ -147,6 +148,15 @@
               <p class="picker-hint">☁️ Prefer cloud storage? In the file picker tap <b>⋮</b> and switch on <b>Google Drive</b>, <b>Dropbox</b> or <b>OneDrive</b>.</p>
             </div>
             <input type="file" id="file-input" class="file-input" />
+          </div>
+
+          <div id="recent-card" class="controls-card hidden">
+            <div class="audio-head-row">
+              <h3 class="controls-title">🕘 Recent files</h3>
+              <button id="recent-clear" class="btn-secondary btn-mini">Clear</button>
+            </div>
+            <div id="recent-list" class="audio-file-list"></div>
+            <p class="field-hint">Kept in this browser only, never uploaded. Files over 10 MB are not remembered.</p>
           </div>
 
           <!-- Conversion Panel (hidden initially) -->
@@ -1044,6 +1054,22 @@
             </div>
           </div>
         </main>
+      </div>
+
+      <div id="shortcuts-dialog" class="modal-overlay hidden">
+        <div class="modal-card" role="dialog" aria-label="Keyboard shortcuts">
+          <h3 class="controls-title">⌨️ Keyboard shortcuts</h3>
+          <dl class="exif-list">
+            <dt><kbd>Alt</kbd> + <kbd>1</kbd>…<kbd>8</kbd></dt><dd>Switch tabs (Convert → PDF)</dd>
+            <dt><kbd>?</kbd></dt><dd>Open / close this list</dd>
+            <dt><kbd>Esc</kbd></dt><dd>Close this list</dd>
+            <dt><kbd>Ctrl</kbd> + <kbd>V</kbd></dt><dd>Paste an image/file to upload</dd>
+          </dl>
+          <p class="field-hint">Shortcuts stay quiet while you type in a field.</p>
+          <div class="editor-actions">
+            <button class="btn-secondary" id="shortcuts-close">Close</button>
+          </div>
+        </div>
       </div>
 
       <!-- Footer -->

@@ -1903,6 +1903,35 @@ html {
   display: none;
 }
 
+/* Shortcuts dialog */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 16px;
+}
+.modal-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 20px 24px;
+  max-width: 440px;
+  width: 100%;
+}
+.modal-card kbd {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
 .editor-side {
   width: 320px;
   flex: 0 0 320px;

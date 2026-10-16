@@ -91,6 +91,8 @@ export function setupImageEditor() {
   $('editor-undo').addEventListener('click', undo);
   $('editor-redo').addEventListener('click', redo);
   $('editor-reset').addEventListener('click', resetAll);
+  // Cross-tab hook: lets shared files (and anything else) open an image here.
+  window.__editorLoadFile = loadImageFile;
 
   // Export
   $('editor-download').addEventListener('click', exportDownload);

@@ -22,8 +22,50 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+  // Web Share Target: another app shared files to us via POST /_share.
+  // Stash them in IndexedDB and bounce to the app, which picks them up.
+  if (event.request.method === 'POST' && url.pathname === '/_share') {
+    event.respondWith(
+      (async () => {
+        try {
+          const form = await event.request.formData();
+          const files = form.getAll('files').filter((v) => v instanceof File);
+          if (files.length) await idbPutAll(files);
+        } catch {
+          // fall through to the app anyway - it will report an empty inbox
+        }
+        return Response.redirect('/?shared=1', 303);
+      })()
+    );
+    return;
+  }
+  if (event.request.method !== 'GET') return;
   event.respondWith(fetch(event.request));
 });
+
+// Minimal IndexedDB (mirrors src/utils/sharedInbox.js - kept dependency-free
+// because classic service workers cannot import app modules).
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('fileforge-share', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('inbox', { autoIncrement: true });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbPutAll(files) {
+  const db = await idbOpen();
+  try {
+    await Promise.all(files.map((file) => new Promise((resolve, reject) => {
+      const tx = db.transaction('inbox', 'readwrite');
+      tx.objectStore('inbox').put({ name: file.name, type: file.type, blob: file, time: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    })));
+  } finally {
+    db.close();
+  }
+}
