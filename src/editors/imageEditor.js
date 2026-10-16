@@ -1321,8 +1321,55 @@ function openPalette() {
       </button>`).join('') : '<p class="editor-hint">No opaque pixels found.</p>'}
     <p class="editor-hint">Tap a color to copy its hex code.</p>
     <div class="editor-actions">
+      <button type="button" class="btn-secondary" id="pal-sample">🎯 Sample a pixel</button>
+    </div>
+    <div id="pal-picked" hidden>
+      <button type="button" class="pal-swatch" id="pal-picked-btn">
+        <span class="pal-dot" id="pal-picked-dot"></span>
+        <span><b id="pal-picked-hex">-</b><br><span class="field-hint" id="pal-picked-rgb"></span></span>
+      </button>
+      <p class="editor-hint">Tap the swatch to copy. Toggle the button above to stop sampling.</p>
+    </div>
+    <div class="editor-actions">
       <button class="btn-secondary" data-act="close">Close</button>
     </div>`;
+  let sampling = false;
+  const toCanvas = (e) => {
+    const m = canvasMetrics();
+    return {
+      x: Math.max(0, Math.min(editorCanvas.width - 1, Math.round(((e.clientX - m.rect.left) / m.rect.width) * editorCanvas.width))),
+      y: Math.max(0, Math.min(editorCanvas.height - 1, Math.round(((e.clientY - m.rect.top) / m.rect.height) * editorCanvas.height))),
+    };
+  };
+  const onPick = (e) => {
+    if (!sampling) return;
+    const p = toCanvas(e);
+    const d = editorCtx.getImageData(p.x, p.y, 1, 1).data;
+    const hex = '#' + [d[0], d[1], d[2]].map((v) => v.toString(16).padStart(2, '0')).join('');
+    $('pal-picked').hidden = false;
+    $('pal-picked-dot').style.background = hex;
+    $('pal-picked-hex').textContent = hex;
+    $('pal-picked-rgb').textContent = `rgb(${d[0]}, ${d[1]}, ${d[2]}) · @${p.x},${p.y}`;
+    $('pal-picked-btn').dataset.hex = hex;
+    e.preventDefault();
+  };
+  overlayEl.style.cursor = 'crosshair';
+  overlayEl.addEventListener('pointerdown', onPick);
+  $('pal-sample').addEventListener('click', () => {
+    sampling = !sampling;
+    $('pal-sample').classList.toggle('active', sampling);
+    $('pal-sample').textContent = sampling ? '⏸ Stop sampling' : '🎯 Sample a pixel';
+    if (!sampling) overlayEl.style.cursor = 'default';
+  });
+  $('pal-picked-btn').addEventListener('click', () => {
+    const hex = $('pal-picked-btn').dataset.hex || '';
+    if (!hex) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(hex).then(() => toast('Copied ' + hex), () => toast(hex));
+    } else {
+      toast(hex);
+    }
+  });
   controlsEl.querySelectorAll('.pal-swatch').forEach((b) => {
     b.addEventListener('click', () => {
       const hex = b.dataset.hex;

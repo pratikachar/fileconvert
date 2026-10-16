@@ -473,3 +473,7 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 - Every tab hero now enumerates what the tab does (formats+resize, QR types+SVG export, metadata report, all 25 audio tools, color picker, PDF jobs, all 18 editor tools).
 - Color tool is now a real picker: native color input synced both ways with the converter, plus a system EyeDropper button that only appears where the API exists (honest note elsewhere).
 - Verified: build green; **tabs-ui 14/14** - exact names, no legacy spans, fit at both widths, all hero keywords, picker both directions, EyeDropper wiring matches API presence. 0 page errors.
+
+## Palette click-to-sample eyedropper
+- The Palette tool gained a sampling mode: toggle it, click any pixel on the photo, get HEX + RGB + coordinates in a swatch, tap to copy. Coordinates clamp to the canvas; the overlay listener dies with the overlay node on tool switch (clearOverlay clones it), and the cursor resets when toggled off.
+- Verified: build green; **sample E2E 7/7** - red half reads #ff0000 @75,100, blue half #0000ff @225,100 (exact centers, so the client-to-canvas mapping is pixel-perfect), copy works, toggle off clean. 0 page errors.
