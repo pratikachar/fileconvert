@@ -57,28 +57,46 @@ function roundedMask(x, y, s, r) {
 }
 
 function render(size, { rounded = true, bg = [16, 14, 26], bolt = [167, 139, 250] } = {}) {
-  const raw = Buffer.alloc(size * size * 4);
-  const r = rounded ? size * 0.225 : 0;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      // rounded corners -> transparent outside
-      let alpha = 255;
+  // Supersample 4x then box-downscale: hard binary alpha on curves looks
+  // blurred/pixelated when the OS scales the splash screen, so edges are
+  // anti-aliased here instead.
+  const SS = 4;
+  const big = size * SS;
+  const field = new Float32Array(big * big * 4);
+  const r = rounded ? big * 0.225 : 0;
+  for (let y = 0; y < big; y++) {
+    for (let x = 0; x < big; x++) {
+      let alpha = 1;
       if (rounded) {
-        const cx = Math.min(x, size - 1 - x), cy = Math.min(y, size - 1 - y);
-        if (cx < 0 || cy < 0) { alpha = 0; }
-        else {
-          const dx = r - cx, dy = r - cy;
-          if (dx > 0 && dy > 0 && dx * dx + dy * dy > r * r) alpha = 0;
+        const cx = Math.min(x + 0.5, big - 0.5 - x), cy = Math.min(y + 0.5, big - 0.5 - y);
+        const dx = r - cx, dy = r - cy;
+        if (dx > 0 && dy > 0) {
+          const d = Math.sqrt(dx * dx + dy * dy);
+          alpha = Math.max(0, Math.min(1, r + 0.5 - d));
         }
       }
-      // subtle vertical gradient on the background
-      const t = y / (size - 1);
+      const t = y / (big - 1);
       let R = bg[0] + (30 - bg[0]) * (1 - t) * 0.35;
       let G = bg[1] + (27 - bg[1]) * (1 - t) * 0.35;
       let B = bg[2] + (48 - bg[2]) * (1 - t) * 0.35;
-      if (alpha && inBolt(x / size, y / size, size)) { R = bolt[0]; G = bolt[1]; B = bolt[2]; }
+      if (alpha > 0 && inBolt((x + 0.5) / big, (y + 0.5) / big, big)) { R = bolt[0]; G = bolt[1]; B = bolt[2]; }
+      const o = (y * big + x) * 4;
+      field[o] = R; field[o + 1] = G; field[o + 2] = B; field[o + 3] = alpha;
+    }
+  }
+  const raw = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let R = 0, G = 0, B = 0, A = 0;
+      for (let dy = 0; dy < SS; dy++) {
+        for (let dx = 0; dx < SS; dx++) {
+          const o = (((y * SS + dy) * big) + (x * SS + dx)) * 4;
+          R += field[o]; G += field[o + 1]; B += field[o + 2]; A += field[o + 3];
+        }
+      }
       const o = (y * size + x) * 4;
-      raw[o] = Math.round(R); raw[o + 1] = Math.round(G); raw[o + 2] = Math.round(B); raw[o + 3] = alpha;
+      raw[o] = Math.round(R / 16); raw[o + 1] = Math.round(G / 16);
+      raw[o + 2] = Math.round(B / 16); raw[o + 3] = Math.round((A / 16) * 255);
     }
   }
   // PNG: signature + IHDR + IDAT (zlib of filtered scanlines) + IEND

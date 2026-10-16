@@ -21,6 +21,7 @@ import { setupAIMetadataRemover } from './metadataRemover.js';
 import { setupAudioTab } from './audio/audioTab.js';
 import { setupTextTab } from './texttools/textTab.js';
 import { setupPdfTab } from './pdftools/pdfTab.js';
+import { setupDailyTab } from './daily/dailyTab.js';
 import { setupInstall } from './utils/install.js';
 import { takeInbox, routeShared } from './utils/sharedInbox.js';
 import { addRecent, listRecent, getRecent, clearRecent, timeAgo } from './utils/recentFiles.js';
@@ -915,6 +916,7 @@ function init() {
   setupAudioTab();
   setupTextTab();
   setupPdfTab();
+  setupDailyTab();
   setupInstall();
   setupShortcuts();
   window.__converterLoadFile = handleFile;
@@ -964,7 +966,7 @@ async function intakeShared() {
 }
 
 function setupShortcuts() {
-  const order = ['converter', 'icon', 'qr', 'editor', 'ai', 'audio', 'text', 'pdf'];
+  const order = ['converter', 'icon', 'qr', 'editor', 'ai', 'audio', 'text', 'pdf', 'daily'];
   document.addEventListener('keydown', (e) => {
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;

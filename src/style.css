@@ -1072,8 +1072,8 @@ html {
     padding: 7px 6px;
     font-size: 0.7rem;
     gap: 3px;
-    /* Icon rail on phones: labels hide except on the active tab, so all 8
-       fit with room to spare. The row still scrolls as a fallback. */
+    /* Icon-only rail on phones (all 8 fit with room to spare, portrait and
+       landscape alike). Labels stay in the DOM for screen readers. */
     flex: 1 1 0;
     min-width: 0;
     justify-content: center;
@@ -1083,14 +1083,20 @@ html {
     display: none;
   }
 
-  .nav-tab.active .tab-label {
-    display: inline;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
   .tab-icon {
     font-size: 1.05rem;
+  }
+
+  /* Install gets its own full-width row above everything on phones instead
+     of squeezing beside the badge. Hidden once installed (see install.js). */
+  .header-top {
+    flex-wrap: wrap;
+  }
+
+  #install-btn {
+    order: -1;
+    width: 100%;
+    margin-bottom: 4px;
   }
 }
 
@@ -1933,6 +1939,31 @@ html {
   font-family: ui-monospace, monospace;
   font-size: 0.82rem;
   white-space: nowrap;
+}
+
+/* Daily calendar grid */
+.tt-cal {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin: 8px 0;
+  text-align: center;
+  font-size: 0.9rem;
+}
+.tt-cal-h {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 4px 0;
+}
+.tt-cal-d {
+  padding: 8px 0;
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  border: 1px solid transparent;
+}
+.tt-cal-d.today {
+  border-color: var(--accent);
+  font-weight: 700;
 }
 
 .editor-side {

@@ -75,37 +75,41 @@
       <!-- Navigation Tabs - outside <header> so position:sticky can pin them to the
            viewport; a sticky child can only travel within its parent's box. -->
       <nav class="nav-tabs" role="tablist">
-          <button class="nav-tab active" id="tab-btn-converter" data-tab="converter" role="tab" aria-selected="true" aria-label="Converter" title="Converter">
+          <button class="nav-tab active" id="tab-btn-converter" data-tab="converter" role="tab" aria-selected="true" aria-label="File Converter" title="File Converter">
             <span class="tab-icon">📁</span>
-            <span class="tab-label">Converter</span>
+            <span class="tab-label">Convert</span>
           </button>
           <button class="nav-tab" id="tab-btn-icon" data-tab="icon" role="tab" aria-selected="false" aria-label="Icon Maker" title="Icon Maker">
             <span class="tab-icon">🎨</span>
-            <span class="tab-label">Icon Maker</span>
+            <span class="tab-label">Icon</span>
           </button>
-          <button class="nav-tab" id="tab-btn-qr" data-tab="qr" role="tab" aria-selected="false" aria-label="QR" title="QR">
+          <button class="nav-tab" id="tab-btn-qr" data-tab="qr" role="tab" aria-selected="false" aria-label="QR Generator" title="QR Generator">
             <span class="tab-icon">📱</span>
             <span class="tab-label">QR</span>
           </button>
-          <button class="nav-tab" id="tab-btn-editor" data-tab="editor" role="tab" aria-selected="false" aria-label="Editor" title="Editor">
+          <button class="nav-tab" id="tab-btn-editor" data-tab="editor" role="tab" aria-selected="false" aria-label="Image Editor" title="Image Editor">
             <span class="tab-icon">🖼️</span>
-            <span class="tab-label">Editor</span>
+            <span class="tab-label">Edit</span>
           </button>
           <button class="nav-tab" id="tab-btn-ai" data-tab="ai" role="tab" aria-selected="false" aria-label="AI Cleaner" title="AI Cleaner">
             <span class="tab-icon">🧹</span>
             <span class="tab-label">AI</span>
           </button>
-          <button class="nav-tab" id="tab-btn-audio" data-tab="audio" role="tab" aria-selected="false" aria-label="AV Tools" title="AV Tools">
+          <button class="nav-tab" id="tab-btn-audio" data-tab="audio" role="tab" aria-selected="false" aria-label="Audio and Video Tools" title="Audio and Video Tools">
             <span class="tab-icon">🎵</span>
-            <span class="tab-label">AV Tools</span>
+            <span class="tab-label">AV</span>
           </button>
-          <button class="nav-tab" id="tab-btn-text" data-tab="text" role="tab" aria-selected="false" aria-label="Txt Tools" title="Txt Tools">
+          <button class="nav-tab" id="tab-btn-text" data-tab="text" role="tab" aria-selected="false" aria-label="Text Tools" title="Text Tools">
             <span class="tab-icon">{ }</span>
-            <span class="tab-label">Txt Tools</span>
+            <span class="tab-label">TXT</span>
           </button>
           <button class="nav-tab" id="tab-btn-pdf" data-tab="pdf" role="tab" aria-selected="false" aria-label="PDF Tools" title="PDF Tools">
             <span class="tab-icon">📄</span>
-            <span class="tab-label">PDF Tools</span>
+            <span class="tab-label">PDF</span>
+          </button>
+          <button class="nav-tab" id="tab-btn-daily" data-tab="daily" role="tab" aria-selected="false" aria-label="Daily clock, timer and weather" title="Daily clock, timer and weather">
+            <span class="tab-icon">⏰</span>
+            <span class="tab-label">Daily</span>
           </button>
         </nav>
 
@@ -1052,11 +1056,27 @@
         </main>
       </div>
 
+      <!-- TAB 9: DAILY -->
+      <div id="tab-content-daily" class="tab-content hidden">
+        <section class="hero">
+          <h1 class="hero-title">Everyday <span class="gradient-text">Daily Tools</span></h1>
+          <p class="hero-subtitle">Clock with world times, stopwatch, countdown timer, calendar and weather - free, private, on your device.</p>
+        </section>
+
+        <main class="tool-section">
+          <div class="controls-card">
+            <h3 class="controls-title">🧰 Tools</h3>
+            <div id="daily-toolbar" class="audio-toolbar"></div>
+            <div id="daily-panel" class="audio-tool-panel"></div>
+          </div>
+        </main>
+      </div>
+
       <div id="shortcuts-dialog" class="modal-overlay hidden">
         <div class="modal-card" role="dialog" aria-label="Keyboard shortcuts">
           <h3 class="controls-title">⌨️ Keyboard shortcuts</h3>
           <dl class="exif-list">
-            <dt><kbd>Alt</kbd> + <kbd>1</kbd>…<kbd>8</kbd></dt><dd>Switch tabs (Convert → PDF)</dd>
+            <dt><kbd>Alt</kbd> + <kbd>1</kbd>…<kbd>9</kbd></dt><dd>Switch tabs (Convert → Daily)</dd>
             <dt><kbd>?</kbd></dt><dd>Open / close this list</dd>
             <dt><kbd>Esc</kbd></dt><dd>Close this list</dd>
             <dt><kbd>Ctrl</kbd> + <kbd>V</kbd></dt><dd>Paste an image/file to upload</dd>

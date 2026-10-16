@@ -483,3 +483,11 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 - <=420px no longer hides icons (they ARE the navigation now), just tightens spacing.
 - Verified in the mobile audit: icon rail + aria labels + fit at 390px, all 8 labels back at desktop width. 0 page errors.
 - Infra note: a long-lived headless profile eventually wedges CDP (hangs with no error) - wipe edge-profile and restart when evaluates start timing out; also gave the E2E harness a 60s CDP timeout so it fails fast with a label instead of hanging forever.
+
+## Daily tab + final round (tabs, install row, icons, picker)
+- Tab names now exactly: Convert, Icon, QR, Edit, AI, AV, TXT, PDF (+ Daily) with fuller aria-labels; legacy dual spans gone. Mobile is pure icon rail (even the active tab shows no label); desktop taller labels untouched.
+- Install button takes its own full-width row above the header on phones (was squeezed beside the badge). Still hides once installed (standalone/appinstalled paths unchanged).
+- Icons regenerated with 4x supersampling + analytic corner coverage (were binary alpha - the blur on splash screens). Still 2-8 KB each.
+- **New 9th tab: Daily** - live clock + 6 world cities (Intl, no data), stopwatch (laps), countdown timer (WebAudio alarm), Monday-start calendar, weather via Open-Meteo (free, keyless, CORS-open). Timers die on tool switch, tab leave and document-hide so nothing ticks in the background.
+- Offline honesty: clock/stopwatch/timer/calendar are pure-local and work offline once loaded; weather needs network; the app shell itself stays network-only by design (stale-cache incidents) so first load needs connectivity either way. News is NOT feasible free (needs API keys / a proxy for CORS-less RSS) - said plainly, not built.
+- Verified: build green; **17 new Node checks** (formats, leap calendar incl. Monday-start June 2026, timezone math, WMO table, URL builders); **daily E2E 11/11** - clock ticks, stopwatch pause/reset, 2s timer to Time's up, October 2026 + today marked, month nav, LIVE London weather 16C, Alt+9, 9 tabs fit at 360px. 0 page errors.
