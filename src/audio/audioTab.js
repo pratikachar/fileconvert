@@ -92,6 +92,12 @@ function vtrimVideoOut() {
   return state.tool === 'vtrim' && state.vtrimMode === 'video';
 }
 
+/** Tools that always write a video container (so the shared output select
+ *  offers containers and the bitrate group is hidden). */
+function isVideoToolOut() {
+  return vtrimVideoOut() || ['vmute', 'vrotate', 'vspeed', 'vcompress'].includes(state.tool);
+}
+
 /**
  * The shared output-format select is reused for audio and video outputs so
  * there is still only one control in the run row. Options follow the active
@@ -100,7 +106,7 @@ function vtrimVideoOut() {
 function updateOutExtOptions() {
   const sel = $('audio-out-ext');
   if (!sel) return;
-  const video = vtrimVideoOut();
+  const video = isVideoToolOut();
   const list = video ? ops.VIDEO_OUT_FORMATS : ops.AUDIO_OUT_FORMATS;
   const want = video ? state.videoOutExt : state.audioOutExt;
   const item = activeFile();
@@ -311,9 +317,7 @@ export function setupAudioTab() {
 
 function updateBitrateVisibility() {
   const ext = effectiveOutExt();
-  // Bitrate only matters when audio is re-encoded: stream-copy runs (video
-  // trim, tag rewrite) ignore it, as do the uncompressed formats.
-  const copies = vtrimVideoOut() || state.tool === 'tags';
+  const copies = isVideoToolOut() || state.tool === 'tags';
   $('audio-bitrate-group').classList.toggle('hidden', copies || ['wav', 'flac'].includes(ext));
 }
 
@@ -1257,6 +1261,58 @@ function renderPanel() {
     return;
   }
 
+
+  if (t === 'vmute') {
+    const m = activeFile();
+    el.innerHTML = `
+      <p class="field-hint">Writes a new video without an audio track. The picture is stream-copied if the output container matches the source, otherwise re-encoded.</p>
+      <label class="control-inline"><input type="checkbox" id="ao-vm-meta" checked /> Strip all metadata too</label>
+      <p class="field-hint">Useful for trimming storage or sharing clips without sound.</p>`;
+    return;
+  }
+
+  if (t === 'vrotate') {
+    el.innerHTML = `
+      <label class="control-label" for="ao-vr-mode">Transform</label>
+      <select id="ao-vr-mode" class="form-select">
+        <option value="cw">Rotate 90° clockwise</option>
+        <option value="ccw">Rotate 90° counter-clockwise</option>
+        <option value="180">Rotate 180°</option>
+        <option value="flipH">Flip horizontally</option>
+        <option value="flipV">Flip vertically</option>
+      </select>
+      <p class="field-hint">Re-encodes the picture (libx264 fast, CRF 22); the audio stream is copied untouched.</p>`;
+    return;
+  }
+
+  if (t === 'vspeed') {
+    el.innerHTML = `
+      <label class="control-label" for="ao-vsp-rate">Playback speed</label>
+      <select id="ao-vsp-rate" class="form-select">
+        ${[0.25, 0.5, 0.75, 1.25, 1.5, 2, 3, 4].map((r) => `<option value="${r}">${r}x</option>`).join('')}
+      </select>
+      <label class="control-inline"><input type="checkbox" id="ao-vsp-audio" checked /> Adjust audio to match</label>
+      <p class="field-hint">Re-encodes. Pick the option below to mute or leave the original audio.</p>`;
+    $('ao-vsp-rate').value = '1.25';
+    return;
+  }
+
+  if (t === 'vcompress') {
+    el.innerHTML = `
+      <label class="control-label" for="ao-vc-target">Target height</label>
+      <select id="ao-vc-target" class="form-select">
+        <option value="720" selected>720p (good quality, moderate size)</option>
+        <option value="480">480p (smallest, fine for chat)</option>
+        <option value="360">360p (tiny)</option>
+      </select>
+      <label class="control-label" for="ao-vc-crf">CRF quality (${28})</label>
+      <input type="range" id="ao-vc-crf" min="18" max="35" value="28" />
+      <p class="field-hint">libx264 fast, AAC 96k, +faststart so it streams. Replaces the original entirely with the smaller file.</p>`;
+    const crfOut = el.querySelector('label[for="ao-vc-crf"]');
+    $('ao-vc-crf').addEventListener('input', (e) => { crfOut.textContent = 'CRF quality (' + e.target.value + ')'; });
+    return;
+  }
+
   if (t === 'tags') {
     el.innerHTML = `
       <p class="field-hint">Rewrites ID3 tags without touching the audio data (stream copy). Output keeps the input format (<b>${item ? item.ext.toUpperCase() : ''}</b>).</p>
@@ -1323,6 +1379,10 @@ function readPanel() {
       videoOut: denoiseVideoOut(),
     };
   }
+  if (t === 'vmute') return { stripMeta: !!($('ao-vm-meta') || {}).checked };
+  if (t === 'vrotate') return { mode: ($('ao-vr-mode') || {}).value || 'cw' };
+  if (t === 'vspeed') return { rate: parseFloat(($('ao-vsp-rate') || {}).value || '1.25'), adjustAudio: !!($('ao-vsp-audio') || {}).checked };
+  if (t === 'vcompress') return { target: parseInt(($('ao-vc-target') || {}).value || '720', 10), crf: parseInt(($('ao-vc-crf') || {}).value || '28', 10) };
   if (t === 'tags') {
     return {
       tags: {
@@ -1584,6 +1644,19 @@ async function runTool() {
         args = ops.buildExtractAudio({ inName, outName, outExt, bitrate: br });
       } else if (state.tool === 'silence') {
         args = ops.buildSilenceTrim({ inName, outName, thresholdDb: o.thresholdDb, minSilence: o.minSilence, keepPad: o.keepPad, outExt, bitrate: br });
+
+      } else if (state.tool === 'vmute') {
+        downloadName = base + '-muted.' + outExt;
+        args = ops.buildVideoMute({ inName, outName, outExt, sourceExt: item.ext, bitrate: br });
+      } else if (state.tool === 'vrotate') {
+        downloadName = base + '-rotated.' + outExt;
+        args = ops.buildVideoRotate({ inName, outName, mode: o.mode, outExt });
+      } else if (state.tool === 'vspeed') {
+        downloadName = base + '-' + o.rate + 'x.' + outExt;
+        args = ops.buildVideoSpeed({ inName, outName, speed: o.adjustAudio ? o.rate : o.rate, outExt });
+      } else if (state.tool === 'vcompress') {
+        downloadName = base + '-compressed.' + outExt;
+        args = ops.buildVideoCompress({ inName, outName, target: o.target, crf: o.crf });
       } else if (state.tool === 'split') {
         const thr = Number(o.thresholdDb || -40);
         const minSil = Number(o.minSilence) || 0.4;

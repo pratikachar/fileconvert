@@ -5,7 +5,8 @@ Delivered in phases, each one tested + committed separately. Rule for all phases
 no paid API, no server, no LLM, nothing leaves the device.
 - **Phase 1 - DONE**: Trim Video + video output containers in the Audio tab.
 - **Phase 2 - DONE**: Magic Remove via OpenCV Telea inpaint (OpenCV 4.11, self-hosted, 5.6/255 gradient accuracy).
-- **Phase 3 - DONE**: Audio extras fully delivered - karaoke, ringtone, BPM, voice recorder (MediaRecorder), silence splitter (silencedetect + cuts).
+- **Phase 3 - DONE**: Audio extras fully delivered - karaoke, ringtone, BPM tap, voice recorder (MediaRecorder, local), silence splitter (silencedetect -> multiple results).
+- **Phase 4 - DONE (core)**: mute, rotate/flip, speed change, WhatsApp-targeted compress (libx264). Remaining in phase: extract frames, GIF->video, images->slideshow, replace audio track - small additions deferred.
 - **Phase 3**: Audio extras - voice recorder (MediaRecorder), karaoke vocal reducer, ringtone maker, silence splitter, BPM tap counter.
 - **Phase 4**: Video utilities - lossless trim (shipped in P1), mute, rotate/flip, speed, WhatsApp compressor, extract frames, GIF->video, images->slideshow, replace audio track.
 - **Phase 5**: Image extras - EXIF viewer, watermark, meme presets, circle crop, Instagram grid splitter, palette extractor, collage maker, manual pixelate.

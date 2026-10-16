@@ -99,6 +99,53 @@ export function canLosslessVideoTrim(inExt, outExt) {
  * honest trade for a zero-re-encode cut. Streams are mapped with `?` so files
  * missing an audio track do not fail with "map matches no streams".
  */
+
+/** Drop the audio track, stream-copy the video (fast). If containers differ we
+ *  fall back to re-encoding with libx264 so the output still plays. */
+export function buildVideoMute({ inName, outName, outExt = 'mp4', sourceExt = 'mp4', bitrate = 192 }) {
+  if (outExt === sourceExt) {
+    return ['-i', inName, '-map', '0:v:0', '-an', '-c:v', 'copy', '-y', outName];
+  }
+  return ['-i', inName, '-map', '0:v:0', '-an', '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', ...codecArgs('aac', bitrate), '-y', outName];
+}
+
+/** Rotate / flip a video (re-encode, keep audio copied). mode: cw|ccw|flipH|flipV|180. */
+export function buildVideoRotate({ inName, outName, mode = 'cw', outExt = 'mp4' }) {
+  const vf = ({
+    cw: 'transpose=1',
+    ccw: 'transpose=2',
+    flipH: 'hflip',
+    flipV: 'vflip',
+    180: 'hflip,vflip',
+  })[mode] || 'transpose=1';
+  return ['-i', inName, '-vf', vf, '-c:v', 'libx264', '-preset', 'fast', '-crf', '22', '-c:a', 'copy', '-y', outName];
+}
+
+/** Change video playback speed. speed>1 speeds up, <1 slows. Audio uses atempo (chained). */
+export function buildVideoSpeed({ inName, outName, speed = 1, outExt = 'mp4' }) {
+  const s = Math.max(0.25, Math.min(4, Number(speed) || 1));
+  const pts = 1 / s;
+  const args = ['-i', inName, '-vf', `setpts=${pts}*PTS`, '-r', '30'];
+  // audio chain
+  const chain = [];
+  let r = s;
+  // atempo expects 0.5..2; chain
+  const at = [];
+  let rr = Math.max(0.25, Math.min(4, s));
+  while (rr > 2) { at.push('atempo=2'); rr /= 2; }
+  while (rr < 0.5) { at.push('atempo=0.5'); rr /= 0.5; }
+  if (Math.abs(rr - 1) > 1e-3) at.push(`atempo=${rr}`);
+  if (at.length) args.push('-af', at.join(','));
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '22', '-c:a', 'aac', '-b:a', '128k', '-y', outName);
+  return args;
+}
+
+/** Re-encode for tiny downloads (WhatsApp-friendly). target: 720|480|360. */
+export function buildVideoCompress({ inName, outName, target = 720, crf = 28 }) {
+  const h = ({ 720: 720, 480: 480, 360: 360 })[target] || 720;
+  return ['-i', inName, '-vf', `scale=-2:${h}`, '-c:v', 'libx264', '-preset', 'fast', '-crf', String(crf), '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', '-y', outName];
+}
+
 export function buildVideoTrim({
   inName, outName,
   start = 0, end = null,
@@ -444,5 +491,9 @@ export const TOOLS = [
   { id: 'bpm', label: '🪘 BPM Tapper' },
   { id: 'record', label: '🎙 Record (mic)' },
   { id: 'split', label: '✂️ Split on silence' },
+  { id: 'vmute', label: '🔇 Mute audio' },
+  { id: 'vrotate', label: '🔄 Rotate/Flip' },
+  { id: 'vspeed', label: '⚡ Change speed' },
+  { id: 'vcompress', label: '📱 Compress (WhatsApp)' },
   { id: 'tags', label: '🏷 Metadata', needsTaggable: true },
 ];
