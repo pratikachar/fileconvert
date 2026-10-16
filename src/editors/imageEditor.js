@@ -5,6 +5,9 @@ import { removeBackground } from './bgRemove.js';
 import { inpaintMask, opencvSizeMB } from './magicRemove.js';
 import { upscaleCanvas, UPSCALE_TIERS, UPSCALE_SCALES, estimateOutput, isHeavyScale, INPUT_CAP, ADV_INPUT_CAP } from './aiUpscale.js';
 import { resizeLanczos } from './resample.js';
+import { scanBuffer, formatFromName } from '../metadataRemover.js';
+import JSZip from 'jszip';
+import { extractPalette } from './palette.js';
 
 const EDITOR_MAX_DIM = 2400;
 const HISTORY_LIMIT = 25;
@@ -12,6 +15,7 @@ const HISTORY_LIMIT = 25;
 let editorCanvas, editorCtx, overlayEl, stageEl, loadingEl, loadingTextEl, controlsEl;
 let toolBaseCanvas; // offscreen snapshot taken when a tool opens (for live preview)
 let originalImageData = null;
+let originalBlob = null; // original upload, kept for the EXIF viewer
 let history = [];
 let histIndex = -1;
 let activeTool = null;
@@ -94,6 +98,7 @@ export function setupImageEditor() {
 
 // ---------- Image loading ----------
 function loadImageFile(file) {
+  originalBlob = file;
   const reader = new FileReader();
   reader.onload = () => {
     const img = new Image();
@@ -105,7 +110,7 @@ function loadImageFile(file) {
       editorCanvas.width = width;
       editorCanvas.height = height;
       editorCtx.drawImage(img, 0, 0, width, height);
-      originalImageData = editorCtx.getImageData(0, 0, width, height);
+      originalImageData = snapshot();
       history = [originalImageData];
       histIndex = 0;
       $('editor-empty').classList.add('hidden');
@@ -121,7 +126,20 @@ function loadImageFile(file) {
 
 // ---------- History ----------
 function snapshot() {
-  return editorCtx.getImageData(0, 0, editorCanvas.width, editorCanvas.height);
+  return {
+    w: editorCanvas.width,
+    h: editorCanvas.height,
+    data: editorCtx.getImageData(0, 0, editorCanvas.width, editorCanvas.height),
+  };
+}
+/** Restore a snapshot, resizing the canvas first - putImageData alone cannot
+ *  undo a tool that changed the canvas dimensions (crop, shape crop, collage). */
+function restoreSnap(s) {
+  if (editorCanvas.width !== s.w || editorCanvas.height !== s.h) {
+    editorCanvas.width = s.w;
+    editorCanvas.height = s.h;
+  }
+  editorCtx.putImageData(s.data, 0, 0);
 }
 function pushHistory() {
   history = history.slice(0, histIndex + 1);
@@ -133,20 +151,20 @@ function pushHistory() {
 function undo() {
   if (histIndex > 0) {
     histIndex--;
-    editorCtx.putImageData(history[histIndex], 0, 0);
+    restoreSnap(history[histIndex]);
     updateHistoryButtons();
   }
 }
 function redo() {
   if (histIndex < history.length - 1) {
     histIndex++;
-    editorCtx.putImageData(history[histIndex], 0, 0);
+    restoreSnap(history[histIndex]);
     updateHistoryButtons();
   }
 }
 function resetAll() {
   if (originalImageData) {
-    editorCtx.putImageData(originalImageData, 0, 0);
+    restoreSnap(originalImageData);
     history = [originalImageData];
     histIndex = 0;
     updateHistoryButtons();
@@ -200,7 +218,9 @@ function openTool(tool) {
   toolBaseCanvas.getContext('2d').drawImage(editorCanvas, 0, 0);
   activeTool = tool;
   clearOverlay();
-  ({ filters: openFilters, text: openText, crop: openCrop, resize: openResize, compress: openCompress, bg: openBg, magic: openMagic, aiupscale: openAiUpscale }[tool] || closeTool)();
+  ({ filters: openFilters, text: openText, crop: openCrop, resize: openResize, compress: openCompress, bg: openBg, magic: openMagic, aiupscale: openAiUpscale,
+    watermark: openWatermark, pixelate: openPixelate, shapecrop: openShapeCrop, meme: openMeme,
+    gridsplit: openGridSplit, palette: openPalette, exif: openExif, collage: openCollage }[tool] || closeTool)();
 }
 
 // ---------- Filters / Adjust ----------
@@ -670,7 +690,7 @@ function openMagic() {
     if (!mask.some((v) => v)) { toast('Paint over the object first'); return; }
     setLoading(true, 'Preparing the OpenCV engine…');
     try {
-      const img = snapshot();
+      const img = snapshot().data;
       const res = await inpaintMask(img, mask, {
         radius: s.radius,
         grow: s.grow,
@@ -851,6 +871,569 @@ function blobToCanvas(blob) {
     img.src = URL.createObjectURL(blob);
   });
 }
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---------- Watermark ----------
+function openWatermark() {
+  const s = { text: '© FileForge', pos: 'br', size: 36, opacity: 60, color: '#ffffff' };
+  const POS = { tl: 'Top left', tc: 'Top center', tr: 'Top right', ml: 'Middle left', mc: 'Center', mr: 'Middle right', bl: 'Bottom left', bc: 'Bottom center', br: 'Bottom right' };
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">💧 Watermark</h3>
+    <label class="control-label">Text</label>
+    <input type="text" id="wm-text" class="form-input" value="© FileForge" maxlength="60" />
+    <label class="control-label">Position</label>
+    <select id="wm-pos" class="form-select">${Object.entries(POS).map(([v, l]) => `<option value="${v}"${v === 'br' ? ' selected' : ''}>${l}</option>`).join('')}</select>
+    ${slider('size', 'Size', 12, 200, 36, 'px')}
+    ${slider('opacity', 'Opacity', 5, 100, 60, '%')}
+    <label class="control-label">Color</label>
+    <input type="color" id="wm-color" value="#ffffff">
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="cancel">Cancel</button>
+      <button class="btn-primary" data-act="apply">Apply</button>
+    </div>`;
+  const preview = () => {
+    const W = editorCanvas.width, H = editorCanvas.height;
+    editorCtx.clearRect(0, 0, W, H);
+    editorCtx.drawImage(toolBaseCanvas, 0, 0);
+    if (!s.text.trim()) return;
+    const pad = Math.max(10, Math.round(Math.min(W, H) * 0.03));
+    editorCtx.save();
+    editorCtx.globalAlpha = s.opacity / 100;
+    editorCtx.font = `600 ${s.size}px Inter, system-ui, sans-serif`;
+    editorCtx.fillStyle = s.color;
+    editorCtx.shadowColor = 'rgba(0,0,0,0.65)';
+    editorCtx.shadowBlur = Math.max(2, Math.round(s.size / 10));
+    const tw = editorCtx.measureText(s.text).width;
+    let x = pad, y = pad + s.size;
+    if (s.pos[1] === 'c') x = (W - tw) / 2;
+    if (s.pos[1] === 'r') x = W - pad - tw;
+    if (s.pos[0] === 'm') y = H / 2 + s.size / 2;
+    if (s.pos[0] === 'b') y = H - pad;
+    editorCtx.fillText(s.text, x, y);
+    editorCtx.restore();
+  };
+  $('wm-text').addEventListener('input', (e) => { s.text = e.target.value; preview(); });
+  $('wm-pos').addEventListener('change', (e) => { s.pos = e.target.value; preview(); });
+  $('wm-color').addEventListener('input', (e) => { s.color = e.target.value; preview(); });
+  controlsEl.querySelectorAll('input[type=range]').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      s[inp.dataset.k] = +inp.value;
+      inp.nextElementSibling.textContent = inp.value + (inp.dataset.u || '');
+      preview();
+    });
+  });
+  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => { editorCtx.drawImage(toolBaseCanvas, 0, 0); closeTool(); });
+  controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => { pushHistory(); closeTool(); });
+  preview();
+}
+
+// ---------- Pixelate regions ----------
+function openPixelate() {
+  const boxes = [];
+  const s = { blocks: 10 };
+  let drag = null;
+  const toFrac = (e) => {
+    const m = canvasMetrics();
+    return {
+      x: Math.max(0, Math.min(1, (e.clientX - m.rect.left) / m.rect.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - m.rect.top) / m.rect.height)),
+    };
+  };
+  const preview = () => {
+    const W = editorCanvas.width, H = editorCanvas.height;
+    editorCtx.clearRect(0, 0, W, H);
+    editorCtx.drawImage(toolBaseCanvas, 0, 0);
+    for (const b of boxes) {
+      const sx = Math.round(b.x * W), sy = Math.round(b.y * H);
+      const sw = Math.max(2, Math.round(b.w * W)), sh = Math.max(2, Math.round(b.h * H));
+      const tw = Math.max(1, Math.round(sw / s.blocks)), th = Math.max(1, Math.round(sh / s.blocks));
+      const tiny = document.createElement('canvas');
+      tiny.width = tw; tiny.height = th;
+      tiny.getContext('2d').drawImage(toolBaseCanvas, sx, sy, sw, sh, 0, 0, tw, th);
+      editorCtx.imageSmoothingEnabled = false;
+      editorCtx.drawImage(tiny, 0, 0, tw, th, sx, sy, sw, sh);
+      editorCtx.imageSmoothingEnabled = true;
+    }
+  };
+  const paintBoxes = () => {
+    overlayEl.querySelectorAll('.px-box').forEach((d) => d.remove());
+    const m = canvasMetrics();
+    const draw = (b, temp) => {
+      const d = document.createElement('div');
+      d.className = 'px-box' + (temp ? ' px-temp' : '');
+      d.style.left = m.leftInStage + b.x * m.rect.width + 'px';
+      d.style.top = m.topInStage + b.y * m.rect.height + 'px';
+      d.style.width = Math.max(2, b.w * m.rect.width) + 'px';
+      d.style.height = Math.max(2, b.h * m.rect.height) + 'px';
+      overlayEl.appendChild(d);
+    };
+    boxes.forEach((b) => draw(b, false));
+    if (drag) draw(drag, true);
+    const list = $('px-list');
+    list.innerHTML = boxes.length
+      ? boxes.map((b, i) => `<div class="audio-result"><span class="ar-name">Region ${i + 1}</span><span class="ar-actions"><button type="button" class="btn-secondary btn-mini" data-px-rm="${i}">✕</button></span></div>`).join('')
+      : '<p class="editor-hint">No regions yet - drag on the image.</p>';
+    list.querySelectorAll('[data-px-rm]').forEach((btn) => {
+      btn.addEventListener('click', () => { boxes.splice(+btn.dataset.pxRm, 1); paintBoxes(); preview(); });
+    });
+  };
+  overlayEl.style.cursor = 'crosshair';
+  overlayEl.addEventListener('pointerdown', (e) => {
+    const p = toFrac(e);
+    drag = { x: p.x, y: p.y, w: 0, h: 0 };
+    try { overlayEl.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    paintBoxes();
+    e.preventDefault();
+  });
+  overlayEl.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const p = toFrac(e);
+    drag.w = Math.max(0, p.x - drag.x);
+    drag.h = Math.max(0, p.y - drag.y);
+    paintBoxes();
+  });
+  const endDrag = () => {
+    if (!drag) return;
+    if (drag.w >= 0.02 && drag.h >= 0.02) boxes.push({ x: drag.x, y: drag.y, w: drag.w, h: drag.h });
+    drag = null;
+    paintBoxes();
+    preview();
+  };
+  overlayEl.addEventListener('pointerup', endDrag);
+  overlayEl.addEventListener('pointercancel', endDrag);
+  overlayEl.addEventListener('pointerleave', endDrag);
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">🧱 Pixelate Faces & Plates</h3>
+    ${slider('blocks', 'Blockiness', 4, 30, 10, '')}
+    <div id="px-list"></div>
+    <div class="editor-actions">
+      <button type="button" class="btn-secondary" id="px-clear">Clear regions</button>
+    </div>
+    <p class="editor-hint">Drag boxes over faces or number plates. Runs fully on-device.</p>
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="cancel">Cancel</button>
+      <button class="btn-primary" data-act="apply">Apply</button>
+    </div>`;
+  controlsEl.querySelector('input[type=range]').addEventListener('input', (e) => {
+    s.blocks = +e.target.value;
+    e.target.nextElementSibling.textContent = e.target.value;
+    preview();
+  });
+  $('px-clear').addEventListener('click', () => { boxes.length = 0; paintBoxes(); preview(); });
+  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => { editorCtx.drawImage(toolBaseCanvas, 0, 0); closeTool(); });
+  controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => { pushHistory(); closeTool(); });
+  paintBoxes();
+  preview();
+}
+
+// ---------- Shape crop (circle / rounded) ----------
+function rrPath(ctx, x, y, w, h, r) {
+  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+function openShapeCrop() {
+  const s = { shape: 'circle', radius: 60 };
+  const preview = () => {
+    const W = editorCanvas.width, H = editorCanvas.height;
+    editorCtx.clearRect(0, 0, W, H);
+    editorCtx.drawImage(toolBaseCanvas, 0, 0);
+    editorCtx.save();
+    editorCtx.globalCompositeOperation = 'destination-in';
+    if (s.shape === 'circle') {
+      const side = Math.min(W, H);
+      editorCtx.beginPath();
+      editorCtx.arc(W / 2, H / 2, side / 2, 0, Math.PI * 2);
+      editorCtx.fill();
+    } else {
+      rrPath(editorCtx, 0, 0, W, H, s.radius);
+      editorCtx.fill();
+    }
+    editorCtx.restore();
+  };
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">⭕ Shape Crop</h3>
+    <div class="seg-row">
+      <button type="button" class="seg-btn active" data-shape="circle">Circle</button>
+      <button type="button" class="seg-btn" data-shape="rounded">Rounded rect</button>
+    </div>
+    ${slider('radius', 'Corner radius', 8, 300, 60, 'px')}
+    <p class="editor-hint">Circle trims the canvas to a centered square. Rounded keeps the size. Export PNG to keep the transparent corners.</p>
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="cancel">Cancel</button>
+      <button class="btn-primary" data-act="apply">Apply</button>
+    </div>`;
+  controlsEl.querySelectorAll('[data-shape]').forEach((b) => {
+    b.addEventListener('click', () => {
+      s.shape = b.dataset.shape;
+      controlsEl.querySelectorAll('[data-shape]').forEach((x) => x.classList.toggle('active', x === b));
+      preview();
+    });
+  });
+  controlsEl.querySelector('input[type=range]').addEventListener('input', (e) => {
+    s.radius = +e.target.value;
+    e.target.nextElementSibling.textContent = e.target.value + 'px';
+    preview();
+  });
+  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => { editorCtx.drawImage(toolBaseCanvas, 0, 0); closeTool(); });
+  controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => {
+    const W = toolBaseCanvas.width, H = toolBaseCanvas.height;
+    const out = document.createElement('canvas');
+    const octx = out.getContext('2d');
+    if (s.shape === 'circle') {
+      const side = Math.min(W, H);
+      out.width = side; out.height = side;
+      const sx = Math.round((W - side) / 2), sy = Math.round((H - side) / 2);
+      octx.save();
+      octx.beginPath();
+      octx.arc(side / 2, side / 2, side / 2, 0, Math.PI * 2);
+      octx.clip();
+      octx.drawImage(toolBaseCanvas, sx, sy, side, side, 0, 0, side, side);
+      octx.restore();
+    } else {
+      out.width = W; out.height = H;
+      octx.save();
+      rrPath(octx, 0, 0, W, H, s.radius);
+      octx.clip();
+      octx.drawImage(toolBaseCanvas, 0, 0);
+      octx.restore();
+    }
+    editorCanvas.width = out.width;
+    editorCanvas.height = out.height;
+    editorCtx.drawImage(out, 0, 0);
+    pushHistory();
+    closeTool();
+  });
+  preview();
+}
+
+// ---------- Meme text ----------
+function openMeme() {
+  const s = { top: 'TOP TEXT', bottom: 'BOTTOM TEXT', size: 64 };
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">😂 Meme Text</h3>
+    <label class="control-label">Top</label>
+    <input type="text" id="meme-top" class="form-input" value="TOP TEXT" maxlength="80" />
+    <label class="control-label">Bottom</label>
+    <input type="text" id="meme-bottom" class="form-input" value="BOTTOM TEXT" maxlength="80" />
+    ${slider('size', 'Size', 24, 160, 64, 'px')}
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="cancel">Cancel</button>
+      <button class="btn-primary" data-act="apply">Apply</button>
+    </div>`;
+  const preview = () => {
+    const W = editorCanvas.width, H = editorCanvas.height;
+    editorCtx.clearRect(0, 0, W, H);
+    editorCtx.drawImage(toolBaseCanvas, 0, 0);
+    editorCtx.save();
+    editorCtx.font = `bold ${s.size}px Impact, 'Arial Black', sans-serif`;
+    editorCtx.textAlign = 'center';
+    editorCtx.lineJoin = 'round';
+    editorCtx.lineWidth = Math.max(2, Math.round(s.size / 10));
+    editorCtx.strokeStyle = '#000';
+    editorCtx.fillStyle = '#fff';
+    if (s.top.trim()) {
+      const t = s.top.toUpperCase();
+      editorCtx.strokeText(t, W / 2, s.size * 1.1);
+      editorCtx.fillText(t, W / 2, s.size * 1.1);
+    }
+    if (s.bottom.trim()) {
+      const t = s.bottom.toUpperCase();
+      editorCtx.strokeText(t, W / 2, H - s.size * 0.35);
+      editorCtx.fillText(t, W / 2, H - s.size * 0.35);
+    }
+    editorCtx.restore();
+  };
+  $('meme-top').addEventListener('input', (e) => { s.top = e.target.value; preview(); });
+  $('meme-bottom').addEventListener('input', (e) => { s.bottom = e.target.value; preview(); });
+  controlsEl.querySelector('input[type=range]').addEventListener('input', (e) => {
+    s.size = +e.target.value;
+    e.target.nextElementSibling.textContent = e.target.value + 'px';
+    preview();
+  });
+  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => { editorCtx.drawImage(toolBaseCanvas, 0, 0); closeTool(); });
+  controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => { pushHistory(); closeTool(); });
+  preview();
+}
+
+// ---------- Instagram grid split ----------
+function openGridSplit() {
+  const s = { cols: 3, rows: 3 };
+  const count = () => s.cols * s.rows;
+  const geom = (c, r) => {
+    const W = toolBaseCanvas.width, H = toolBaseCanvas.height;
+    const x0 = Math.round((c * W) / s.cols), x1 = Math.round(((c + 1) * W) / s.cols);
+    const y0 = Math.round((r * H) / s.rows), y1 = Math.round(((r + 1) * H) / s.rows);
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  };
+  const tileCanvas = (n) => {
+    const c = (n - 1) % s.cols, r = Math.floor((n - 1) / s.cols);
+    const g = geom(c, r);
+    const t = document.createElement('canvas');
+    t.width = g.w; t.height = g.h;
+    t.getContext('2d').drawImage(toolBaseCanvas, g.x, g.y, g.w, g.h, 0, 0, g.w, g.h);
+    return t;
+  };
+  const saveBlob = (blob, name) => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  };
+  const tileBlob = (n) => new Promise((res) => tileCanvas(n).toBlob(res, 'image/png'));
+  const paintGrid = () => {
+    overlayEl.querySelectorAll('.gs-line').forEach((d) => d.remove());
+    let view = overlayEl.querySelector('.grid-split-view');
+    if (!view) {
+      view = document.createElement('div');
+      view.className = 'grid-split-view';
+      overlayEl.appendChild(view);
+    }
+    const m = canvasMetrics();
+    view.style.left = m.leftInStage + 'px';
+    view.style.top = m.topInStage + 'px';
+    view.style.width = m.rect.width + 'px';
+    view.style.height = m.rect.height + 'px';
+    for (let c = 1; c < s.cols; c++) {
+      const d = document.createElement('div');
+      d.className = 'gs-line';
+      d.style.left = (c / s.cols * 100) + '%';
+      d.style.top = '0';
+      d.style.width = '2px';
+      d.style.height = '100%';
+      view.appendChild(d);
+    }
+    for (let r = 1; r < s.rows; r++) {
+      const d = document.createElement('div');
+      d.className = 'gs-line';
+      d.style.top = (r / s.rows * 100) + '%';
+      d.style.left = '0';
+      d.style.height = '2px';
+      d.style.width = '100%';
+      view.appendChild(d);
+    }
+    $('gs-count').textContent = `${count()} tiles`;
+  };
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">🔲 Grid Split</h3>
+    <label class="control-label">Columns</label>
+    <select id="gs-cols" class="form-select">
+      <option value="2">2</option>
+      <option value="3" selected>3 (Instagram)</option>
+      <option value="4">4</option>
+    </select>
+    <label class="control-label">Rows</label>
+    <select id="gs-rows" class="form-select">
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="3" selected>3</option>
+      <option value="4">4</option>
+    </select>
+    <p class="editor-hint" id="gs-count"></p>
+    <label class="control-label" for="gs-tile">Single tile (1 = top left)</label>
+    <input type="number" id="gs-tile" class="form-input" min="1" value="1" />
+    <div class="editor-actions">
+      <button type="button" class="btn-secondary" id="gs-one">Download tile</button>
+      <button type="button" class="btn-primary" id="gs-all">Download all (.zip)</button>
+    </div>
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="close">Close</button>
+    </div>`;
+  const sync = () => {
+    s.cols = +$('gs-cols').value;
+    s.rows = +$('gs-rows').value;
+    $('gs-tile').max = count();
+    paintGrid();
+  };
+  $('gs-cols').addEventListener('change', sync);
+  $('gs-rows').addEventListener('change', sync);
+  $('gs-one').addEventListener('click', async () => {
+    const n = Math.max(1, Math.min(count(), +$('gs-tile').value || 1));
+    saveBlob(await tileBlob(n), `fileforge-tile-${n}.png`);
+    toast(`Tile ${n} of ${count()} downloaded`);
+  });
+  $('gs-all').addEventListener('click', async () => {
+    setLoading(true, 'Zipping tiles…');
+    try {
+      const zip = new JSZip();
+      for (let n = 1; n <= count(); n++) zip.file(`tile-${n}.png`, await tileBlob(n));
+      saveBlob(await zip.generateAsync({ type: 'blob' }), `fileforge-grid-${count()}-tiles.zip`);
+      toast(`${count()} tiles saved to ZIP`);
+    } catch (err) {
+      toast('ZIP failed: ' + (err && err.message ? err.message : err));
+    } finally {
+      setLoading(false);
+    }
+  });
+  controlsEl.querySelector('[data-act=close]').addEventListener('click', closeTool);
+  sync();
+}
+
+// ---------- Color palette ----------
+function openPalette() {
+  const img = editorCtx.getImageData(0, 0, editorCanvas.width, editorCanvas.height);
+  const pal = extractPalette(img, 6);
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">🎨 Palette</h3>
+    ${pal.length ? pal.map((p) => `
+      <button type="button" class="pal-swatch" data-hex="${p.hex}">
+        <span class="pal-dot" style="background:${p.hex}"></span>
+        <span><b>${p.hex}</b><br><span class="field-hint">${Math.round(p.fraction * 100)}% of pixels</span></span>
+      </button>`).join('') : '<p class="editor-hint">No opaque pixels found.</p>'}
+    <p class="editor-hint">Tap a color to copy its hex code.</p>
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="close">Close</button>
+    </div>`;
+  controlsEl.querySelectorAll('.pal-swatch').forEach((b) => {
+    b.addEventListener('click', () => {
+      const hex = b.dataset.hex;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(hex).then(() => toast('Copied ' + hex), () => toast(hex));
+      } else {
+        toast(hex);
+      }
+    });
+  });
+  controlsEl.querySelector('[data-act=close]').addEventListener('click', closeTool);
+}
+
+// ---------- Photo details (EXIF viewer) ----------
+async function openExif() {
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">🔍 Photo Details</h3>
+    <div id="ex-view"><p class="editor-hint">Reading…</p></div>
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="close">Close</button>
+    </div>`;
+  controlsEl.querySelector('[data-act=close]').addEventListener('click', closeTool);
+  const view = $('ex-view');
+  try {
+    if (!originalBlob) {
+      view.innerHTML = '<p class="editor-hint">No original file available for this image.</p>';
+      return;
+    }
+    const buf = new Uint8Array(await originalBlob.arrayBuffer());
+    const fmt = formatFromName(originalBlob.name || '', originalBlob.type || '');
+    if (fmt !== 'png' && fmt !== 'jpeg' && fmt !== 'webp') {
+      view.innerHTML = `<p class="editor-hint">Metadata reading supports PNG, JPEG and WebP (this is ${escapeHtml(fmt)}).</p>`;
+      return;
+    }
+    const rep = scanBuffer(buf, fmt);
+    const ex = rep.exif || {};
+    const rows = [
+      ['File', `${originalBlob.name || 'image'} (${fmt.toUpperCase()}, ${editorCanvas.width}×${editorCanvas.height}px)`],
+      ['Camera', [ex.make, ex.model].filter(Boolean).join(' ')],
+      ['Software', ex.software],
+      ['Taken', ex.datetime],
+      ['Description', ex.imageDesc],
+      ['Comment', ex.userComment ? String(ex.userComment).slice(0, 140) : ''],
+      ['GPS', ex.gps ? 'Present - location is embedded in this file' : ''],
+    ].filter((row) => row[1]);
+    const tags = rows.filter(([k]) => k !== 'File');
+    view.innerHTML = `<dl class="exif-list">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(String(v))}</dd>`).join('')}</dl>`
+      + (tags.length ? '' : '<p class="editor-hint">No EXIF tags in this file - nothing else to show. (Screenshots, edited copies and most PNGs carry none.)</p>');
+  } catch (err) {
+    view.innerHTML = `<p class="editor-hint">Could not read metadata: ${escapeHtml((err && err.message) || String(err))}</p>`;
+  }
+}
+
+// ---------- Photo collage ----------
+function openCollage() {
+  const st = (toolState.collage = toolState.collage || { imgs: [], layout: 'grid2', seeded: false });
+  if (!st.seeded) {
+    st.seeded = true;
+    const c = document.createElement('canvas');
+    c.width = toolBaseCanvas.width;
+    c.height = toolBaseCanvas.height;
+    c.getContext('2d').drawImage(toolBaseCanvas, 0, 0);
+    st.imgs.push(c);
+  }
+  const LAYOUTS = { grid2: '2 side by side', stack2: '2 stacked', grid4: '2×2 grid' };
+  controlsEl.innerHTML = `
+    <h3 class="controls-title">🖼️ Collage</h3>
+    <div class="seg-row">
+      ${Object.entries(LAYOUTS).map(([v, l]) => `<button type="button" class="seg-btn${v === st.layout ? ' active' : ''}" data-cg-l="${v}">${l}</button>`).join('')}
+    </div>
+    <div class="editor-actions">
+      <button type="button" class="btn-secondary" id="cg-addbtn">+ Add photos (max 4)</button>
+      <input type="file" id="cg-add" accept="image/*" multiple class="editor-file-hidden" tabindex="-1" aria-hidden="true" />
+    </div>
+    <div id="cg-thumbs"></div>
+    <p class="editor-hint">Each cell cover-fills its photo. The canvas becomes the collage on Apply.</p>
+    <div class="editor-actions">
+      <button class="btn-secondary" data-act="cancel">Cancel</button>
+      <button class="btn-primary" data-act="apply">Apply</button>
+    </div>`;
+  const grid = () => (st.layout === 'grid4' ? [2, 2] : st.layout === 'stack2' ? [1, 2] : [2, 1]);
+  const renderThumbs = () => {
+    const th = $('cg-thumbs');
+    th.innerHTML = st.imgs.map((img, i) => `<span class="cg-thumb"><img src="${img.toDataURL()}" alt="photo ${i + 1}" /><button type="button" class="btn-secondary btn-mini" data-cg-rm="${i}">✕</button></span>`).join('');
+    th.querySelectorAll('[data-cg-rm]').forEach((b) => {
+      b.addEventListener('click', () => { st.imgs.splice(+b.dataset.cgRm, 1); render(); });
+    });
+  };
+  const render = () => {
+    const [cols, rows] = grid();
+    const cell = 800;
+    editorCanvas.width = cols * cell;
+    editorCanvas.height = rows * cell;
+    editorCtx.fillStyle = '#14141a';
+    editorCtx.fillRect(0, 0, editorCanvas.width, editorCanvas.height);
+    for (let i = 0; i < cols * rows; i++) {
+      const img = st.imgs[i];
+      if (!img) continue;
+      const cx = (i % cols) * cell, cy = Math.floor(i / cols) * cell;
+      const sc = Math.max(cell / img.width, cell / img.height);
+      const dw = img.width * sc, dh = img.height * sc;
+      editorCtx.drawImage(img, cx + (cell - dw) / 2, cy + (cell - dh) / 2, dw, dh);
+    }
+    renderThumbs();
+  };
+  controlsEl.querySelectorAll('[data-cg-l]').forEach((b) => {
+    b.addEventListener('click', () => {
+      st.layout = b.dataset.cgL;
+      controlsEl.querySelectorAll('[data-cg-l]').forEach((x) => x.classList.toggle('active', x === b));
+      render();
+    });
+  });
+  $('cg-addbtn').addEventListener('click', () => $('cg-add').click());
+  $('cg-add').addEventListener('change', async (e) => {
+    for (const f of [...e.target.files]) {
+      if (st.imgs.length >= 4) { toast('Collage holds 4 photos max'); break; }
+      if (!f.type.startsWith('image/')) continue;
+      try {
+        const bmp = await createImageBitmap(f);
+        const c = document.createElement('canvas');
+        c.width = bmp.width; c.height = bmp.height;
+        c.getContext('2d').drawImage(bmp, 0, 0);
+        if (bmp.close) bmp.close();
+        st.imgs.push(c);
+      } catch {
+        toast('Could not read ' + f.name);
+      }
+    }
+    e.target.value = '';
+    render();
+  });
+  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => {
+    editorCanvas.width = toolBaseCanvas.width;
+    editorCanvas.height = toolBaseCanvas.height;
+    editorCtx.drawImage(toolBaseCanvas, 0, 0);
+    closeTool();
+  });
+  controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => { pushHistory(); closeTool(); });
+  render();
+}
+
 async function exportDownload() {
   const fmt = $('editor-out-fmt').value;
   const blob = await canvasToBlob(fmt, fmt === 'image/png' ? 1 : 0.92);

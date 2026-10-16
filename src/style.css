@@ -1761,6 +1761,81 @@ html {
   pointer-events: none;
 }
 
+/* Pixelate: dragged regions over the canvas */
+.px-box {
+  position: absolute;
+  border: 2px dashed rgba(255, 64, 96, 0.9);
+  background: rgba(255, 64, 96, 0.18);
+  pointer-events: none;
+}
+
+/* Grid split: cell divider lines over the canvas */
+.grid-split-view {
+  position: absolute;
+  pointer-events: none;
+}
+.gs-line {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+/* Palette swatches */
+.pal-swatch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  margin: 6px 0;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.pal-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  flex: 0 0 auto;
+}
+
+/* EXIF viewer table */
+.exif-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 8px 0;
+  font-size: 0.9rem;
+}
+.exif-list dt {
+  color: var(--text-muted);
+}
+.exif-list dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+/* Collage thumbnails */
+.cg-thumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 6px 4px 0;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+.cg-thumb img {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
 .editor-side {
   width: 320px;
   flex: 0 0 320px;

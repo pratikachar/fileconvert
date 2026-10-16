@@ -12,7 +12,7 @@ no paid API, no server, no LLM, nothing leaves the device.
 - Verified: build green; **175 Node checks** (+32); **headless-Edge 22/22** - 3-photo slideshow really 3s, music cut to 3.02s, GIF really 2s, 4 frames with PNG magic, replaced track measures **880 Hz over 4.04 s** (zero-crossing), merge accounts for images, audio Cut intact. 0 page errors.
 - **Phase 3**: Audio extras - voice recorder (MediaRecorder), karaoke vocal reducer, ringtone maker, silence splitter, BPM tap counter.
 - **Phase 4**: Video utilities - lossless trim (shipped in P1), mute, rotate/flip, speed, WhatsApp compressor, extract frames, GIF->video, images->slideshow, replace audio track.
-- **Phase 5**: Image extras - EXIF viewer, watermark, meme presets, circle crop, Instagram grid splitter, palette extractor, collage maker, manual pixelate.
+- **Phase 5 - DONE**: Image extras - EXIF viewer, watermark, meme, circle/rounded crop, grid splitter, palette, collage, manual pixelate (16 editor tools). maker, manual pixelate.
 - **Phase 6**: Text + dev tools tab - JSON, Base64, JWT, password gen, word count, diff, markdown, barcodes, unit/timestamp, regex, colour.
 - **Phase 7**: PDF mini-suite - merge, split, images->PDF, rotate pages (pdf-lib).
 - **Phase 8**: Capture - screen recorder, webcam snapshots, voice notes into the audio toolbox.
@@ -414,3 +414,15 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
   - `src/style.css`: `.file-input` now `opacity:0.01; z-index:2` (on top of text, still invisible; some WebViews ignore pure opacity:0) + new `.editor-file-hidden` rule.
 - Verified: `npm run build` passes.
 - APK-side checklist for user: wrapper must implement `WebChromeClient.onShowFileChooser` (+ `onActivityResult`), grant `READ_MEDIA_IMAGES/VIDEO/AUDIO` (or `READ_EXTERNAL_STORAGE` pre-Android 13) + `CAMERA`, and rebuild the APK with the updated `dist/`.
+
+## PHASE 5: Image extras (8 new editor tools, all client-side)
+- **Watermark**: text, 9-position grid, size, opacity, color, soft shadow, live preview.
+- **Pixelate**: drag boxes (touch-friendly), blockiness slider, per-region remove, live preview.
+- **Shape Crop**: circle (centered square output) or rounded rect, transparent corners, PNG-safe.
+- **Meme**: top/bottom Impact text with outline, size slider.
+- **Grid Split**: 2-4 cols x 1-4 rows with overlay guides, single-tile download, all-tiles ZIP via JSZip (already a dependency).
+- **Palette**: 12-bit bucket counting in pure `src/editors/palette.js` (Node-tested), tap-to-copy hex, transparency skipped.
+- **EXIF viewer**: reuses the AI Cleaner exported `scanBuffer`/`formatFromName` on the stashed original upload; always shows file facts, lists Make/Model/Software/Taken/Description/Comment/GPS when present, and says plainly when a file has no tags.
+- **Collage**: current photo seeded as #1, up to 4 photos via its own picker, 3 layouts (side-by-side/stacked/2x2), cover-fit cells, live canvas preview.
+- **History upgraded to dimension-aware snapshots** (`{w,h,data}` + `restoreSnap`): undo/redo/reset now restore canvas *size* too. This was a latent bug in crop/resize as well - putImageData cannot repaint a resized canvas, so undo after any resize left a broken canvas (caught by E2E: circle-undo stayed 200x200).
+- Verified: build green; **229 Node checks** (175 audio + 9 magic + 11 palette + 34 jpeg); **headless-Edge 22/22** - palette #ff0000, watermark/pixelate/meme pixel diffs with undo restoration, circle 200x200 + alpha-0 corners + dim restore, 9-tile ZIP toast, EXIF Make/Model read from a real spliced-APP1 JPEG, 2-photo collage at exactly 1600x800. 0 page errors. Magic Remove re-verified 14/14 after the history change.
