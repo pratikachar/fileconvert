@@ -25,6 +25,8 @@ export const BITRATES = [128, 192, 256, 320];
 
 export const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'oga', 'aac', 'm4a', 'flac', 'opus', 'wma', 'aiff', 'weba'];
 export const VIDEO_EXTS = ['mp4', 'm4v', 'mov', 'mkv', 'avi', 'webm', 'flv', '3gp', 'ts', 'ogv'];
+/** Still images the Audio tab accepts (slideshow source, plus GIF for GIF->video). */
+export const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'];
 /** Formats where FFmpeg can rewrite tags while stream-copying the audio. */
 export const TAGGABLE_EXTS = ['mp3', 'm4a', 'aac', 'ogg', 'opus', 'flac'];
 /** MP3 frames hold 1152 samples, so cut points land on ~26ms steps. */
@@ -38,8 +40,12 @@ export function isVideoExt(ext) {
   return VIDEO_EXTS.includes(ext);
 }
 
+export function isImageExt(ext) {
+  return IMAGE_EXTS.includes((ext || '').toLowerCase());
+}
+
 export function isSupportedInput(ext) {
-  return AUDIO_EXTS.includes(ext) || VIDEO_EXTS.includes(ext);
+  return AUDIO_EXTS.includes(ext) || VIDEO_EXTS.includes(ext) || isImageExt(ext);
 }
 
 export function isTaggable(ext) {
@@ -475,6 +481,75 @@ export function buildDenoise({
   return args;
 }
 
+/**
+ * Grab one still frame at an absolute time. Input seek (-ss before -i) lands on
+ * the exact frame; no stream copy is involved so there is no keyframe snap.
+ */
+export function buildExtractFrame({ inName, outName, at = 0 }) {
+  return ['-ss', r3(Math.max(0, Number(at) || 0)), '-i', inName, '-frames:v', '1', '-y', outName];
+}
+
+/**
+ * Convert an animated GIF to a seekable MP4. Single pass on purpose: the
+ * palettegen/paletteuse two-pass needs filters this core was never probed for,
+ * while plain libx264 at CRF 20 is artefact-free for animation. Alpha is
+ * flattened onto black (MP4 has no alpha channel) and the width is capped so
+ * phone GIFs do not explode in size.
+ */
+export function buildGifToVideo({ inName, outName, width = 480 }) {
+  const w = Math.max(160, Math.min(1280, Math.round(Number(width) || 480)));
+  return ['-i', inName,
+    '-vf', 'scale=' + w + ':-2:flags=lanczos,setsar=1',
+    '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
+    '-movflags', '+faststart', '-an', '-y', outName];
+}
+
+/**
+ * Static photo slideshow. Every picture is normalised to the same canvas
+ * (scale-down + pad + 30 fps) and joined with the concat filter, so mixed
+ * portrait/landscape sources just work. Music is optional: when present its
+ * stream is mapped with -shortest so a long song never stretches the video.
+ */
+export const SLIDESHOW_WIDTHS = [640, 854, 1280];
+export function buildSlideshow({ inNames, outName, secs = 2, width = 1280, height = 720, musicName = null }) {
+  const n = inNames.length;
+  const per = inNames.map(function (_, i) {
+    return '[' + i + ':v]scale=' + width + ':' + height +
+      ':force_original_aspect_ratio=decrease,' +
+      'pad=' + width + ':' + height + ':(ow-iw)/2:(oh-ih)/2:color=black,' +
+      'setsar=1,fps=30[v' + i + ']';
+  }).join(';');
+  const fc = per + ';' + inNames.map(function (_, i) { return '[v' + i + ']'; }).join('') +
+    'concat=n=' + n + ':v=1:a=0[vout]';
+  const args = [];
+  for (const name of inNames) args.push('-loop', '1', '-framerate', '30', '-t', r3(Math.max(0.5, Math.min(10, Number(secs) || 2))), '-i', name);
+  if (musicName) args.push('-i', musicName);
+  args.push('-filter_complex', fc, '-map', '[vout]');
+  if (musicName) args.push('-map', n + ':a?', '-c:a', 'aac', '-b:a', '128k', '-shortest');
+  args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23',
+    '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-y', outName);
+  return args;
+}
+
+/**
+ * Swap a video's soundtrack. The picture is stream-copied (no filters, so the
+ * pinned core's `-c:v copy` + `-af` trap cannot trigger), while the new audio
+ * is RE-ENCODED to the container's native codec - a WAV/PCM track cannot live
+ * inside MP4, and copying it there aborts the mux (verified live). The codec
+ * follows VIDEO_CONTAINER_AUDIO, so WebM still avoids the libopus trap.
+ */
+export function buildReplaceAudio({ videoIn, audioIn, outName, containerExt = "mp4", bitrate = 192 }) {
+  const c = (containerExt || "mp4").toLowerCase();
+  const audioFileExt = intermediateAudioExt(c);
+  return ["-i", videoIn, "-i", audioIn,
+    "-map", "0:v:0", "-map", "1:a:0",
+    "-c:v", "copy", ...codecArgs(audioFileExt, bitrate),
+    "-shortest", "-y", outName];
+}
+
+/** Above this many frames, Extract Frames refuses and asks for a wider step. */
+export const MAX_EXTRACT_FRAMES = 12;
+
 export const TOOLS = [
   { id: 'cut', label: '✂️ Cut' },
   { id: 'vtrim', label: '🎞 Trim Video', needsVideo: true },
@@ -495,5 +570,9 @@ export const TOOLS = [
   { id: 'vrotate', label: '🔄 Rotate/Flip' },
   { id: 'vspeed', label: '⚡ Change speed' },
   { id: 'vcompress', label: '📱 Compress (WhatsApp)' },
+  { id: 'vframes', label: '🖼 Extract Frames', needsVideo: true },
+  { id: 'vgif', label: '🎞 GIF \u2192 Video', needsGif: true },
+  { id: 'vslideshow', label: '🎞 Images \u2192 Slideshow', needsImages: 2 },
+  { id: 'vreplace', label: '🎵 Replace Audio Track', needsVideo: true },
   { id: 'tags', label: '🏷 Metadata', needsTaggable: true },
 ];

@@ -11,6 +11,8 @@ import {
   atempoChain, codecArgs,
   canLosslessTrim, isSupportedInput, isVideoExt, isTaggable, extOf, r3, MP3_FRAME_SAMPLES,
   buildVideoTrim, canLosslessVideoTrim, VIDEO_OUT_FORMATS, TOOLS,
+  buildExtractFrame, buildGifToVideo, buildSlideshow, buildReplaceAudio,
+  isImageExt, IMAGE_EXTS, SLIDESHOW_WIDTHS, MAX_EXTRACT_FRAMES,
 } from '../src/audio/ops.js';
 import { isWasmTrapError } from '../src/converters/media.js';
 import { computePeaks, computePeaksFromPcm, frameSnap, formatTime, timeAtX, xAtTime } from '../src/audio/waveform.js';
@@ -283,6 +285,71 @@ check('flac codec', has(codecArgs('flac'), '-c:a', 'flac'));
   check('ringtone: short content stays whole', shortR[shortR.indexOf('-t') + 1] === '3');
   const openR = buildRingtone({ inName: 'in.wav', outName: 'r.mp3', start: 2, end: null });
   check('ringtone: open end defaults 30s', openR[openR.indexOf('-t') + 1] === '30');
+}
+
+// --- phase 4 remainder: frames, gif->video, slideshow, replace-audio ------
+{
+  // image gating
+  check('images: png/jpg/gif/bmp accepted', isSupportedInput('png') && isSupportedInput('jpg') && isSupportedInput('gif') && isSupportedInput('bmp'));
+  check('images: jpeg + webp accepted', isImageExt('jpeg') && isImageExt('webp'));
+  check('images: ext matching is case-insensitive', isImageExt('PNG') && isImageExt('Gif'));
+  check('images: audio is not image', !isImageExt('mp3') && !isImageExt('mp4'));
+  check('images: registry lists the still formats', IMAGE_EXTS.includes('png') && IMAGE_EXTS.includes('gif'));
+
+  // frame extraction: input seek, exactly one frame, no NaN
+  const fr = buildExtractFrame({ inName: 'in.mp4', outName: 'f.png', at: 7.5 });
+  check('frames: seeks before input', fr.indexOf('-ss') < fr.indexOf('-i') && fr[fr.indexOf('-ss') + 1] === '7.5');
+  check('frames: exactly one frame', fr.includes('-frames:v') && fr[fr.indexOf('-frames:v') + 1] === '1');
+  check('frames: writes the png name', fr[fr.length - 1] === 'f.png' && fr[fr.length - 2] === '-y');
+  const frNeg = buildExtractFrame({ inName: 'in.mp4', outName: 'f.png', at: -4 });
+  check('frames: negative time clamps to 0', frNeg[frNeg.indexOf('-ss') + 1] === '0' && !frNeg.join(' ').includes('NaN'));
+
+  // gif -> video: h264 mp4, no audio, alpha-safe pix fmt, width clamped
+  const gv = buildGifToVideo({ inName: 'in.gif', outName: 'o.mp4', width: 480 });
+  check('gif: libx264 mp4 with faststart', has(gv, '-c:v', 'libx264', '-movflags', '+faststart'));
+  check('gif: yuv420p + no audio track', has(gv, '-pix_fmt', 'yuv420p', '-an'));
+  check('gif: lanczos scale to asked width', gv.join(' ').includes('scale=480:-2'));
+  const gvBig = buildGifToVideo({ inName: 'in.gif', outName: 'o.mp4', width: 4000 });
+  check('gif: width clamped to 1280', gvBig.join(' ').includes('scale=1280:-2'));
+  const gvTiny = buildGifToVideo({ inName: 'in.gif', outName: 'o.mp4', width: 10 });
+  check('gif: width clamped to 160', gvTiny.join(' ').includes('scale=160:-2'));
+
+  // slideshow: normalised canvas, concat count, optional music
+  const ss = buildSlideshow({ inNames: ['a.png', 'b.jpg', 'c.webp'], outName: 's.mp4', secs: 2, width: 1280, height: 720, musicName: null });
+  check('slideshow: one looped input per photo', ss.filter(function (a) { return a === '-loop'; }).length === 3);
+  check('slideshow: each photo held 2s', ss.filter(function (a) { return a === '2'; }).length >= 3 || ss.join(' ').includes(' -t 2 '));
+  check('slideshow: canvas normalisation per input', ss.join(' ').includes('force_original_aspect_ratio=decrease') && ss.join(' ').includes('color=black') && ss.join(' ').includes('fps=30') && ss.join(' ').includes('setsar=1'));
+  check('slideshow: concat joins all three', ss.join(' ').includes('[v0][v1][v2]concat=n=3:v=1:a=0'));
+  check('slideshow: silent without music', !ss.join(' ').includes('-shortest') && !ss.includes('-c:a'));
+  check('slideshow: h264 + faststart', has(ss, '-c:v', 'libx264', '-movflags', '+faststart'));
+  const ssm = buildSlideshow({ inNames: ['a.png', 'b.jpg'], outName: 's.mp4', secs: 1.5, width: 640, height: 360, musicName: 'm.mp3' });
+  check('slideshow: music mapped with -shortest', ssm.join(' ').includes('2:a?') && ssm.join(' ').includes('-shortest') && ssm.includes('-c:a'));
+  check('slideshow: widths registry sane', SLIDESHOW_WIDTHS.includes(640) && SLIDESHOW_WIDTHS.includes(1280));
+
+  // replace-audio: picture copied WITHOUT filters, soundtrack re-encoded
+  const rp = buildReplaceAudio({ videoIn: "v.mp4", audioIn: "a.wav", outName: "o.mp4", containerExt: "mp4" });
+  check("replace: copies video, encodes audio, no filters", has(rp, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac") && !rp.join(" ").includes("-af") && !rp.join(" ").includes("-vf"));
+  check("replace: shortest bound kept", rp.includes("-shortest"));
+  const rpWav = buildReplaceAudio({ videoIn: "v.mp4", audioIn: "a.wav", outName: "o.mp4", containerExt: "mp4" });
+  check("replace: wav into mp4 becomes aac (mp4 cannot hold pcm)", rpWav.join(" ").includes("-c:a") && rpWav.includes("aac"));
+  const rpWebm = buildReplaceAudio({ videoIn: "v.webm", audioIn: "a.mp3", outName: "o.webm", containerExt: "webm" });
+  check("replace: webm uses vorbis, never libopus", rpWebm.includes("libvorbis") && !rpWebm.join(" ").includes("libopus"));
+  const rpAvi = buildReplaceAudio({ videoIn: "v.avi", audioIn: "a.flac", outName: "o.avi", containerExt: "avi" });
+  check("replace: avi uses mp3 audio", rpAvi.includes("libmp3lame"));
+
+  // replace-audio reuses the proven filter-free remux
+  const rx = buildRemux({ videoIn: 'v.mp4', audioIn: 'a.m4a', outName: 'o.mp4' });
+  check('replace: copies both streams, no filters', has(rx, '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy') && !rx.join(' ').includes('-af') && !rx.join(' ').includes('-vf'));
+
+  // registry: new tools gated correctly
+  const tFrames = TOOLS.find(function (t) { return t.id === 'vframes'; });
+  const tGif = TOOLS.find(function (t) { return t.id === 'vgif'; });
+  const tSlide = TOOLS.find(function (t) { return t.id === 'vslideshow'; });
+  const tRep = TOOLS.find(function (t) { return t.id === 'vreplace'; });
+  check('registry: frames + replace need video', !!tFrames && tFrames.needsVideo === true && !!tRep && tRep.needsVideo === true);
+  check('registry: gif tool needs a gif', !!tGif && tGif.needsGif === true);
+  check('registry: slideshow needs 2 images', !!tSlide && tSlide.needsImages === 2);
+  check('registry: frame cap is sane', MAX_EXTRACT_FRAMES === 12);
 }
 
 console.log(`${pass} checks passed, ${fails.length} failed`);

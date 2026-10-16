@@ -95,7 +95,7 @@ function vtrimVideoOut() {
 /** Tools that always write a video container (so the shared output select
  *  offers containers and the bitrate group is hidden). */
 function isVideoToolOut() {
-  return vtrimVideoOut() || ['vmute', 'vrotate', 'vspeed', 'vcompress'].includes(state.tool);
+  return vtrimVideoOut() || ['vmute', 'vrotate', 'vspeed', 'vcompress', 'vgif', 'vslideshow', 'vreplace', 'vframes'].includes(state.tool);
 }
 
 /**
@@ -111,7 +111,7 @@ function updateOutExtOptions() {
   const want = video ? state.videoOutExt : state.audioOutExt;
   const item = activeFile();
   // Default a video output to the source container (the always-safe copy target).
-  const def = video && item && item.isVideo ? item.ext : null;
+  const def = !video ? null : state.tool === 'vslideshow' ? 'mp4' : item && item.isVideo ? item.ext : null;
   const remembered = want && list.some((f) => f.ext === want) ? want : null;
   const value = remembered || (def && list.some((f) => f.ext === def) ? def : list[0].ext);
   sel.innerHTML = list.map((f) => `<option value="${f.ext}">${f.label}</option>`).join('');
@@ -377,6 +377,7 @@ function addFiles(list) {
       ext,
       size: file.size,
       isVideo: ops.isVideoExt(ext),
+      isImage: ops.isImageExt(ext),
       duration: null,
       sampleRate: null,
       peaks: null,
@@ -489,7 +490,7 @@ function renderFileList() {
       const dur = f.duration ? ` · ${formatTime(f.duration)}` : '';
       const armed = state.confirm.kind === 'file' && state.confirm.id === f.id;
       return `<div class="audio-file-chip${f.id === state.activeId ? ' active' : ''}" data-id="${f.id}" role="button" tabindex="0">
-        <span class="af-icon">${f.isVideo ? '🎬' : '🎵'}</span>
+        <span class="af-icon">${f.isVideo ? '🎬' : f.isImage ? '🖼' : '🎵'}</span>
         <span class="af-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
         <span class="af-meta">${formatBytes(f.size)}${dur}</span>
         <button type="button" class="af-del${armed ? ' armed' : ''}" data-del="${f.id}"
@@ -533,6 +534,12 @@ async function setActive(id) {
   draw();
 
   const meta = $('audio-active-meta');
+  if (item.isImage) {
+    meta.textContent = `${item.name} · Image - no waveform. Drop more images for a slideshow, or turn a GIF into a video.`;
+    $('audio-wave-note').classList.remove('hidden');
+    draw();
+    return;
+  }
   meta.textContent = `Decoding waveform…`;
   try {
     await ensurePeaks(item, (frac, msg) => {
@@ -751,6 +758,7 @@ function stopPlayback() {
 async function togglePlay() {
   const item = activeFile();
   if (!item) return;
+  if (item.isImage) { toast('Images have no audio - use them in Slideshow or GIF → Video.'); return; }
   const p = ensurePlayer();
   if (!p.paused) {
     p.pause();
@@ -795,14 +803,24 @@ async function previewSelection() {
 // ============================================
 function renderTools() {
   const item = activeFile();
-  const audioCount = state.files.filter((f) => !f.isVideo).length;
+  const audioCount = state.files.filter((f) => !f.isVideo && !f.isImage).length;
+  const imageCount = state.files.filter((f) => f.isImage).length;
   const bar = $('audio-toolbar');
   bar.innerHTML = ops.TOOLS.map((t) => {
     let disabled = false;
     let why = '';
-    if (t.needsVideo) {
+    if (item && item.isImage && t.id !== 'vgif' && t.id !== 'vslideshow') {
+      disabled = true;
+      why = 'Images can only go to Slideshow or GIF → Video - pick an audio or video file for the other tools.';
+    } else if (t.needsVideo) {
       disabled = !(item && item.isVideo);
       why = 'Load a video file (MP4/MOV/MKV/AVI/WEBM) first.';
+    } else if (t.needsGif) {
+      disabled = !(item && item.ext === 'gif');
+      why = 'Load an animated GIF first.';
+    } else if (t.needsImages) {
+      disabled = imageCount < t.needsImages;
+      why = `Load at least ${t.needsImages} images to build a slideshow.`;
     } else if (t.needsFiles) {
       disabled = audioCount < t.needsFiles;
       why = `Load at least ${t.needsFiles} audio files to merge them.`;
@@ -920,15 +938,16 @@ function renderPanel() {
   }
 
   if (t === 'merge') {
-    const audioOnly = state.files.filter((f) => !f.isVideo);
+    const audioOnly = state.files.filter((f) => !f.isVideo && !f.isImage);
     const videos = state.files.filter((f) => f.isVideo);
+    const images = state.files.filter((f) => f.isImage);
     el.innerHTML = `
       <label class="control-label">Merge order (top to bottom)</label>
       ${state.files.map((f, i) => {
           const armed = state.confirm.kind === 'file' && state.confirm.id === f.id;
           return `<div class="audio-result${armed ? ' armed' : ''}">
           <span class="ar-name">${i + 1}. ${escapeHtml(f.name)}</span>
-          <span class="ar-meta">${f.isVideo ? 'video - skipped' : formatBytes(f.size)}</span>
+          <span class="ar-meta">${f.isVideo ? 'video - skipped' : f.isImage ? 'image - skipped' : formatBytes(f.size)}</span>
           <span class="ar-actions">
             <button type="button" class="btn-secondary btn-mini" data-mv="up" data-i="${i}"${i === 0 ? ' disabled' : ''}>↑</button>
             <button type="button" class="btn-secondary btn-mini" data-mv="down" data-i="${i}"${i === state.files.length - 1 ? ' disabled' : ''}>↓</button>
@@ -937,7 +956,7 @@ function renderPanel() {
           </span>
         </div>`;
         }).join('')}
-      <p class="field-hint">Merges ${audioOnly.length} audio file${audioOnly.length === 1 ? '' : 's'} into one track, re-encoded to the chosen format so mixed sources still join cleanly.${videos.length ? ` Video files (${videos.length}) are skipped - use Extract Audio on them first.` : ''}</p>`;
+      <p class="field-hint">Merges ${audioOnly.length} audio file${audioOnly.length === 1 ? '' : 's'} into one track, re-encoded to the chosen format so mixed sources still join cleanly.${videos.length ? ` Video files (${videos.length}) are skipped - use Extract Audio on them first.` : ''}${images.length ? ` Images (${images.length}) are skipped - they belong in Slideshow.` : ''}</p>`;
     el.querySelectorAll('[data-mv]').forEach((b) => {
       b.addEventListener('click', () => {
         const i = parseInt(b.dataset.i, 10);
@@ -1313,6 +1332,64 @@ function renderPanel() {
     return;
   }
 
+  if (t === 'vframes') {
+    $('audio-out-ext').disabled = true;
+    el.innerHTML = `
+      <label class="control-label" for="ao-fr-every">One frame every (seconds)</label>
+      <input type="number" id="ao-fr-every" class="form-input" step="0.5" min="0.5" max="10" value="2" />
+      <p class="field-hint">Grabs PNG stills across the whole clip (at most ${ops.MAX_EXTRACT_FRAMES} frames - widen the step for long videos). Each picture is re-rendered at its timestamp, so there is no keyframe snap.</p>`;
+    return;
+  }
+
+  if (t === 'vgif') {
+    $('audio-out-ext').value = 'mp4';
+    state.videoOutExt = 'mp4';
+    $('audio-out-ext').disabled = true;
+    el.innerHTML = `
+      <label class="control-label" for="ao-gif-w">Output width</label>
+      <select id="ao-gif-w" class="form-select">
+        <option value="320">320 px (tiny)</option>
+        <option value="480" selected>480 px (balanced)</option>
+        <option value="640">640 px (large)</option>
+      </select>
+      <p class="field-hint">Converts the GIF to a universally playable <b>MP4</b> (H.264, faststart). Transparency is flattened onto black because MP4 has no alpha channel.</p>`;
+    return;
+  }
+
+  if (t === 'vslideshow') {
+    const simgs = state.files.filter((f) => f.isImage);
+    const sauds = state.files.filter((f) => !f.isVideo && !f.isImage);
+    el.innerHTML = `
+      <p class="field-hint">Builds an MP4 from <b>${simgs.length}</b> loaded image${simgs.length === 1 ? '' : 's'}, in file-list order. Mixed portrait/landscape sources are padded onto one canvas.</p>
+      <label class="control-label" for="ao-ss-secs">Seconds per photo</label>
+      <input type="number" id="ao-ss-secs" class="form-input" step="0.5" min="0.5" max="10" value="2" />
+      <label class="control-label" for="ao-ss-w">Video size</label>
+      <select id="ao-ss-w" class="form-select">
+        <option value="640">640x360</option>
+        <option value="854">854x480</option>
+        <option value="1280" selected>1280x720</option>
+      </select>
+      <label class="control-label" for="ao-ss-music">Background music (optional)</label>
+      <select id="ao-ss-music" class="form-select">
+        <option value="">None - silent slideshow</option>
+        ${sauds.map((f) => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('')}
+      </select>
+      <p class="field-hint">Re-encodes with libx264 (fast). At most 12 photos per run; a longer song is cut to the slideshow length.</p>`;
+    return;
+  }
+
+  if (t === 'vreplace') {
+    const rauds = state.files.filter((f) => !f.isVideo && !f.isImage);
+    el.innerHTML = `
+      <p class="field-hint">Swaps the video's soundtrack for one of your loaded audio files. The picture is stream-copied with no quality loss; the new track is re-encoded to fit the container (AAC/MP3/Vorbis), so even a WAV works.</p>
+      <label class="control-label" for="ao-vr-audio">New soundtrack</label>
+      <select id="ao-vr-audio" class="form-select">
+        ${rauds.length ? rauds.map((f) => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('') : '<option value="">Load an audio file first</option>'}
+      </select>
+      ${item ? `<p class="field-hint">Output container: <b>${fmtOutExt().toUpperCase()}</b>. Keep the source container (${item.ext.toUpperCase()}) or MKV for a guaranteed fit.</p>` : ''}`;
+    return;
+  }
+
   if (t === 'tags') {
     el.innerHTML = `
       <p class="field-hint">Rewrites ID3 tags without touching the audio data (stream copy). Output keeps the input format (<b>${item ? item.ext.toUpperCase() : ''}</b>).</p>
@@ -1383,6 +1460,10 @@ function readPanel() {
   if (t === 'vrotate') return { mode: ($('ao-vr-mode') || {}).value || 'cw' };
   if (t === 'vspeed') return { rate: parseFloat(($('ao-vsp-rate') || {}).value || '1.25'), adjustAudio: !!($('ao-vsp-audio') || {}).checked };
   if (t === 'vcompress') return { target: parseInt(($('ao-vc-target') || {}).value || '720', 10), crf: parseInt(($('ao-vc-crf') || {}).value || '28', 10) };
+  if (t === 'vframes') return { every: num('ao-fr-every', 2) };
+  if (t === 'vgif') return { width: num('ao-gif-w', 480) };
+  if (t === 'vslideshow') return { secs: num('ao-ss-secs', 2), width: num('ao-ss-w', 1280), musicId: parseInt(($('ao-ss-music') || {}).value || '', 10) || null };
+  if (t === 'vreplace') return { audioId: parseInt(($('ao-vr-audio') || {}).value || '', 10) || null };
   if (t === 'tags') {
     return {
       tags: {
@@ -1591,7 +1672,7 @@ async function runTool() {
     let precomputedRes = null;
 
     if (state.tool === 'merge') {
-      const mergeItems = state.files.filter((f) => !f.isVideo);
+      const mergeItems = state.files.filter((f) => !f.isVideo && !f.isImage);
       const names = mergeItems.map((f, i) => fsName(`m${i}.${f.ext}`));
       inputs = mergeItems.map((f, i) => ({ name: names[i], file: f.file }));
       inputs.push({ name: 'list.txt', data: ops.concatList(names) });
@@ -1753,6 +1834,61 @@ async function runTool() {
       } else if (state.tool === 'ringtone') {
         args = ops.buildRingtone({ inName, outName, start: o.start, end: o.end, outExt, bitrate: br });
         downloadName = `${base}-ringtone.${outExt}`;
+      } else if (state.tool === 'vframes') {
+        if (!item.duration) { bailRun('Duration unknown - reload the video and try again.'); return; }
+        const every = Math.max(0.5, o.every || 2);
+        const count = Math.min(ops.MAX_EXTRACT_FRAMES, Math.max(1, Math.floor(item.duration / every)));
+        if (Math.floor(item.duration / every) > ops.MAX_EXTRACT_FRAMES) {
+          toast('That step would make ' + Math.floor(item.duration / every) + ' frames - capped at ' + ops.MAX_EXTRACT_FRAMES + '.');
+        }
+        for (let i = 0; i < count; i++) {
+          const at = Math.min(item.duration - 0.05, i * every + every / 2);
+          const fName = fsName('frame' + i + '.png');
+          const [fr] = await runFFmpeg({
+            args: ops.buildExtractFrame({ inName, outName: fName, at }),
+            inputs: [{ name: inName, file: item.file }],
+            outputs: [{ name: fName, type: 'image/png' }],
+            onProgress: (f) => {
+              bar.style.width = Math.round(((i + f) / count) * 100) + '%';
+              text.textContent = 'Extracting frame ' + (i + 1) + '/' + count;
+            },
+          });
+          if (liveRunId !== myRun) return;
+          addResult(base + '-frame' + (i + 1) + '.png', fr.bytes, 'image/png');
+        }
+        text.textContent = 'Done!';
+        bar.style.width = '100%';
+        stopElapsed();
+        $('audio-cancel').classList.add('hidden');
+        runBtn.disabled = false;
+        liveRunId = 0;
+        progress.classList.add('hidden');
+        return;
+      } else if (state.tool === 'vgif') {
+        downloadName = base + '-from-gif.mp4';
+        outName = fsName('gif.mp4');
+        args = ops.buildGifToVideo({ inName, outName, width: o.width });
+      } else if (state.tool === 'vslideshow') {
+        const simgs = state.files.filter((f) => f.isImage).slice(0, 12);
+        if (simgs.length < 2) { bailRun('Load at least 2 images to build a slideshow.'); return; }
+        const music = o.musicId ? state.files.find((f) => f.id === o.musicId && !f.isVideo && !f.isImage) : null;
+        const names = simgs.map((f, i) => fsName('ss' + i + '.' + f.ext));
+        inputs = simgs.map((f, i) => ({ name: names[i], file: f.file }));
+        let musicName = null;
+        if (music) { musicName = fsName('music.' + music.ext); inputs.push({ name: musicName, file: music.file }); }
+        const sw = [640, 854, 1280].includes(o.width) ? o.width : 1280;
+        const sh = { 640: 360, 854: 480, 1280: 720 }[sw];
+        outName = fsName('slideshow.' + outExt);
+        args = ops.buildSlideshow({ inNames: names, outName, secs: o.secs, width: sw, height: sh, musicName });
+        downloadName = 'slideshow-' + simgs.length + '-photos.' + outExt;
+      } else if (state.tool === 'vreplace') {
+        const track = state.files.find((f) => f.id === o.audioId && !f.isVideo && !f.isImage);
+        if (!track) { bailRun('Pick one of your loaded audio files as the new soundtrack.'); return; }
+        if (!ops.canLosslessVideoTrim(item.ext, outExt)) { bailRun('A ' + item.ext.toUpperCase() + ' picture track cannot be muxed into ' + outExt.toUpperCase() + ' - keep the source container or pick MKV.'); return; }
+        const aName = fsName('track.' + track.ext);
+        inputs = [{ name: inName, file: item.file }, { name: aName, file: track.file }];
+        args = ops.buildReplaceAudio({ videoIn: inName, audioIn: aName, outName, containerExt: outExt, bitrate: br });
+        downloadName = base + '-new-audio.' + outExt;
       } else if (state.tool === 'tags') {
         args = ops.buildTags({ inName, outName, tags: o.tags, audioOnly: item.isVideo });
         downloadName = `${base}-tagged.${outExt}`;
