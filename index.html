@@ -107,6 +107,11 @@
             <span class="tab-label-full">Text & Dev Tools</span>
             <span class="tab-label-short">Text</span>
           </button>
+          <button class="nav-tab" id="tab-btn-pdf" data-tab="pdf" role="tab" aria-selected="false">
+            <span class="tab-icon">📄</span>
+            <span class="tab-label-full">PDF Tools</span>
+            <span class="tab-label-short">PDF</span>
+          </button>
         </nav>
 
       <!-- TAB 1: FILE CONVERTER -->
@@ -992,6 +997,50 @@
             <h3 class="controls-title">🧰 Utilities</h3>
             <div id="text-toolbar" class="audio-toolbar"></div>
             <div id="text-panel" class="audio-tool-panel"></div>
+          </div>
+        </main>
+      </div>
+
+      <!-- TAB 8: PDF TOOLS -->
+      <div id="tab-content-pdf" class="tab-content hidden">
+        <section class="hero">
+          <h1 class="hero-title">Free <span class="gradient-text">PDF Tools</span></h1>
+          <p class="hero-subtitle">Merge, split, build from images, rotate pages - everything stays on your device.</p>
+        </section>
+
+        <main class="tool-section">
+          <div id="pdf-upload-zone" class="upload-zone">
+            <div class="upload-zone-content">
+              <div class="upload-icon">📄</div>
+              <p class="upload-text">Drop PDFs or images here</p>
+              <p class="upload-subtext">or click to browse · add several PDFs to merge them</p>
+              <div class="upload-formats">PDF · PNG · JPG · WEBP</div>
+            </div>
+            <input type="file" id="pdf-file-input" class="file-input" multiple accept="application/pdf,.pdf,image/*,.png,.jpg,.jpeg,.webp" />
+          </div>
+
+          <div id="pdf-workspace" class="hidden">
+            <div class="controls-card">
+              <div class="audio-head-row">
+                <h3 class="controls-title">📄 Files <span id="pdf-file-count" class="tag tag-input">0</span></h3>
+                <button id="pdf-add-more" class="btn-secondary btn-mini">+ Add files</button>
+              </div>
+              <div id="pdf-file-list" class="audio-file-list"></div>
+            </div>
+
+            <div class="controls-card">
+              <h3 class="controls-title">🧰 Tools</h3>
+              <div id="pdf-toolbar" class="audio-toolbar"></div>
+              <div id="pdf-panel" class="audio-tool-panel"></div>
+            </div>
+
+            <div class="controls-card">
+              <div class="audio-head-row">
+                <h3 class="controls-title">📦 Results</h3>
+                <button id="pdf-clear-results" class="btn-secondary btn-mini">Clear all</button>
+              </div>
+              <div id="pdf-results" class="audio-results"></div>
+            </div>
           </div>
         </main>
       </div>

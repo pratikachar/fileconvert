@@ -20,6 +20,7 @@ import { setupImageEditor } from './editors/imageEditor.js';
 import { setupAIMetadataRemover } from './metadataRemover.js';
 import { setupAudioTab } from './audio/audioTab.js';
 import { setupTextTab } from './texttools/textTab.js';
+import { setupPdfTab } from './pdftools/pdfTab.js';
 
 // Helper DOM selector
 const $ = (sel) => document.querySelector(sel);
@@ -851,6 +852,7 @@ function init() {
   setupAIMetadataRemover();
   setupAudioTab();
   setupTextTab();
+  setupPdfTab();
   setupPasteUpload();
   registerServiceWorker();
 }

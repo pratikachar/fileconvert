@@ -14,7 +14,7 @@ no paid API, no server, no LLM, nothing leaves the device.
 - **Phase 4**: Video utilities - lossless trim (shipped in P1), mute, rotate/flip, speed, WhatsApp compressor, extract frames, GIF->video, images->slideshow, replace audio track.
 - **Phase 5 - DONE**: Image extras - EXIF viewer, watermark, meme, circle/rounded crop, grid splitter, palette, collage, manual pixelate (16 editor tools). maker, manual pixelate.
 - **Phase 6 - DONE**: Text + dev tools tab (13 utilities, 7th tab).
-- **Phase 7**: PDF mini-suite - merge, split, images->PDF, rotate pages (pdf-lib).
+- **Phase 7 - DONE**: PDF mini-suite (new 8th tab: merge, split/extract, images->PDF, rotate).
 - **Phase 8**: Capture - screen recorder, webcam snapshots, voice notes into the audio toolbox.
 - **Phase 9**: UX multipliers - install prompt, share-target, recent files, keyboard shortcuts.
 
@@ -432,3 +432,10 @@ Five earlier attempts failed and were removed. Root cause found this time, and i
 - Pure logic in `src/texttools/texttools.js` (Node-tested); UI in `src/texttools/textTab.js`; tab wiring follows the auto-discovery nav (button + panel + one setup call).
 - Verified: build green (JsBarcode CJS bundles fine); **50 new Node checks**; **headless-Edge 24/24** incl. unicode Base64 round-trip, JWT payload + no-verify warning, live word/diff/markdown/regex/color, real CODE128 bar render, EAN digit validation, 5 km live conversion, epoch both ways. 0 page errors.
 - E2E lesson: cold dev boot (ffmpeg/imgly/onnx graph) takes longer than a fixed 3.5 s sleep - wait for the app-rendered rail, not wall time.
+
+## PHASE 7: PDF suite (new 8th tab, pdf-lib lazy chunk)
+- 4 tools: Merge (multi-PDF, reorder, per-file page counts), Split/Extract (page ranges like 1-3,5 plus split-every-page to ZIP capped at 20), Images->PDF (fit or A4 sheets), Rotate (per-page 90/180/270).
+- Pure logic in `src/pdftools/pdftools.js` (page-spec parser, merge/extract/rotate/images/rotation-readback) - pdf-lib runs in Node, so real byte round-trips are unit-tested, not just browser-tested. UI in `src/pdftools/pdfTab.js` with per-file page counts, reorder, results + downloads, and a `__pdfResults` hook.
+- pdf-lib (~600 KB) is genuinely lazy: pdfTab never imports pdftools statically (dynamic import on first need, warmed on tab open). dist proves it - `pdftools-*.js` is its own 412 KB chunk, main bundle untouched.
+- Bugs the tests caught: a falsy-`0` bug in the range validator (`if (bad)` missed page 0 - now `!== undefined`), a stale `MAX_SPLIT_PAGES` reference after the lazy refactor (would have 500'd split-all at runtime), and a duplicate `ensurePdfLib` from a half-applied cleanup.
+- Verified: build green; **26 Node checks** (spec matrix incl. reversed/garbage/out-of-range, merge 2+3=5, extract order, rotations, A4 geometry); **headless-Edge 12/12** - merged 5 pages, extracted 2, bad range refused, 3-page ZIP, 2-image PDF, 90/90 rotations read back. 0 page errors.
