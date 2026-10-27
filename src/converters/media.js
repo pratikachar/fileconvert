@@ -174,10 +174,13 @@ export async function runFFmpeg({ args, inputs = [], outputs = [], onProgress = 
     }
     noteFFmpegCrash(err);
     const tail = ffmpegTail();
-    throw new Error(
-      `FFmpeg command failed${tail ? ' - ' + tail : ''}. ${(err && err.message) || err} ` +
-      'The codec/format combination may not be supported in the browser build.'
-    );
+    const detail = String((err && err.message) || err || '').trim();
+    // The tail is already part of some errors (e.g. "Aborted()"); avoid the
+    // duplicated, unreadable blob the old message produced.
+    const bits = [];
+    if (tail && !detail.includes(tail)) bits.push(tail);
+    if (detail) bits.push(detail);
+    throw new Error(`FFmpeg command failed: ${bits.join(' / ')}`);
   } finally {
     progressSink = prevSink;
     for (const n of written.concat(outputs.map((o) => o.name))) {

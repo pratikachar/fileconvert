@@ -6,8 +6,10 @@
  */
 import {
   formatHMS, monthGrid, MONTHS, worldClock,
-  lookupCity, getWeather,
+  lookupCity, getWeather, createCalc,
+  CURRENCIES, getRatesCached, convertMoney, rateSourceLabel,
 } from './daily.js';
+import { revealPanel } from '../utils/scrollPanel.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -17,12 +19,15 @@ export const DAILY_TOOLS = [
   { id: 'timer', label: '⏲ Timer', short: '⏲ Timer' },
   { id: 'calendar', label: '📅 Calendar', short: '📅 Cal' },
   { id: 'weather', label: '⛅ Weather', short: '⛅ Sky' },
+  { id: 'calc', label: '🧮 Calculator', short: '🧮 Calc' },
+  { id: 'currency', label: '💱 Currency', short: '💱 FX' },
 ];
 
 let activeTool = 'clock';
 let clockTimer = null;
 let watchTimer = null;
 let timerTimer = null;
+let calcKeys = null;
 
 function stopClocks() {
   for (const t of [clockTimer, watchTimer, timerTimer]) {
@@ -74,6 +79,7 @@ export function setupDailyTab() {
     activeTool = btn.dataset.tool;
     renderDailyTools();
     renderDailyPanel();
+    revealPanel($('daily-panel'));
   });
   if (window.matchMedia) {
     window.matchMedia('(max-width: 640px)').addEventListener('change', () => renderDailyTools());
@@ -289,5 +295,135 @@ function renderDailyPanel() {
       }
     };
     $('dy-w-go').addEventListener('click', go);
+    return;
+  }
+
+  if (t === 'calc') {
+    const calc = createCalc();
+    const KEYS = [
+      ['C', 'clear', 'btn-secondary'], ['⌫', 'back', 'btn-secondary'], ['%', 'percent', 'btn-secondary'], ['÷', '/', 'btn-secondary'],
+      ['7', '7', 'btn-secondary'], ['8', '8', 'btn-secondary'], ['9', '9', 'btn-secondary'], ['×', '*', 'btn-secondary'],
+      ['4', '4', 'btn-secondary'], ['5', '5', 'btn-secondary'], ['6', '6', 'btn-secondary'], ['−', '-', 'btn-secondary'],
+      ['1', '1', 'btn-secondary'], ['2', '2', 'btn-secondary'], ['3', '3', 'btn-secondary'], ['+', '+', 'btn-secondary'],
+      ['±', 'negate', 'btn-secondary'], ['0', '0', 'btn-secondary'], ['.', 'dot', 'btn-secondary'], ['=', 'equals', 'btn-primary'],
+    ];
+    el.innerHTML = `
+      <div id="dy-cc-out" class="tt-calc-out">0</div>
+      <div class="tt-calc">
+        ${KEYS.map(([label, act, cls]) => `<button type="button" class="${cls}" data-cc="${act}">${label}</button>`).join('')}
+      </div>
+      <p class="editor-hint">Your physical keyboard works too (0-9 + − × ÷ . %). Immediate execution, like a pocket calculator.</p>`;
+    const show = () => { $('dy-cc-out').textContent = calc.display(); };
+    const press = (act) => {
+      if (/^[0-9]$/.test(act)) calc.digit(act);
+      else if (act === 'dot') calc.dot();
+      else if (['+', '-', '*', '/'].includes(act)) calc.setOp(act);
+      else if (act === 'equals') calc.equals();
+      else if (act === 'clear') calc.clear();
+      else if (act === 'back') calc.back();
+      else if (act === 'negate') calc.negate();
+      else if (act === 'percent') calc.percent();
+      show();
+    };
+    el.querySelectorAll('[data-cc]').forEach((b) => b.addEventListener('click', () => press(b.dataset.cc)));
+    const onKey = (e) => {
+      if (activeTool !== 'calc' || document.getElementById('tab-content-daily').classList.contains('hidden')) return;
+      const tgt = e.target;
+      if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable)) return;
+      const map = { '+': '+', '-': '-', '*': '*', '/': '/', '.': 'dot', ',': 'dot', Enter: 'equals', '=': 'equals', Backspace: 'back', '%': 'percent' };
+      if (/^[0-9]$/.test(e.key)) { press(e.key); e.preventDefault(); }
+      else if (e.key in map) { press(map[e.key]); e.preventDefault(); }
+      else if (e.key === 'Delete' || e.key.toLowerCase() === 'c') { press('clear'); }
+    };
+    document.addEventListener('keydown', onKey);
+    // renderDailyPanel re-renders on every visit; drop the stale listener first.
+    if (calcKeys) document.removeEventListener('keydown', calcKeys);
+    calcKeys = onKey;
+    show();
+    return;
+  }
+
+  if (t === 'currency') {
+    const opts = CURRENCIES.map((c) => `<option>${c}</option>`).join('');
+    el.innerHTML = `
+      <label class="control-label" for="dy-fx-amt">Amount</label>
+      <input type="number" id="dy-fx-amt" class="form-input" value="100" min="0" step="any" />
+      <div class="sliders-row">
+        <div><label class="control-label" for="dy-fx-from">From</label><select id="dy-fx-from" class="form-select">${opts}</select></div>
+        <div><label class="control-label" for="dy-fx-to">To</label><select id="dy-fx-to" class="form-select">${opts}</select></div>
+      </div>
+      <div class="editor-actions">
+        <button type="button" class="btn-secondary btn-mini" id="dy-fx-swap">⇄ Swap</button>
+        <button type="button" class="btn-secondary btn-mini" id="dy-fx-retry" hidden>↻ Retry</button>
+      </div>
+      <div id="dy-fx-out" class="tt-out" hidden></div>
+      <p class="editor-hint" id="dy-fx-note">Free ECB rates (Frankfurter), no account or key. Needs network.</p>`;
+    $('dy-fx-from').value = 'USD';
+    $('dy-fx-to').value = 'INR';
+    let table = null;
+    let seq = 0;
+    let pending = 0; // loads in flight - stops convert() from re-triggering itself
+    const retryBtn = $('dy-fx-retry');
+    const fail = (msg) => {
+      const box = $('dy-fx-out');
+      box.hidden = false;
+      box.classList.add('tt-err');
+      box.textContent = msg;
+      retryBtn.hidden = false;
+    };
+    const convert = () => {
+      const box = $('dy-fx-out');
+      const from = $('dy-fx-from').value;
+      const to = $('dy-fx-to').value;
+      const r = convertMoney($('dy-fx-amt').value, from, to, table);
+      if (!r.ok) {
+        // The cached ECB table has no AED/SAR: fetch a wider table instead of
+        // leaving the user with "No AED rate".
+        if (table && from !== to && !table.rates[to] && !pending) { load(); return; }
+        fail(r.error);
+        return;
+      }
+      retryBtn.hidden = true;
+      box.hidden = false;
+      box.classList.remove('tt-err');
+      box.textContent = `${$('dy-fx-amt').value} ${from} = ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(r.out)} ${to}`;
+    };
+    const load = async () => {
+      const my = ++seq;
+      pending++;
+      $('dy-fx-note').textContent = 'Fetching rates…';
+      retryBtn.hidden = true;
+      try {
+        // The old table stays in place while this runs, so typing an amount
+        // mid-fetch keeps converting instead of flashing "Rates not loaded".
+        const fresh = await getRatesCached($('dy-fx-from').value, $('dy-fx-to').value);
+        if (my !== seq) return; // a newer request won
+        table = fresh;
+        $('dy-fx-note').textContent = `Rates as of ${table.date || 'today'} (${rateSourceLabel(table)}, cached 12h).`;
+        convert();
+      } catch (err) {
+        if (my !== seq) return;
+        table = null;
+        $('dy-fx-note').textContent = 'Rates are fetched live - nothing is stored on a server.';
+        fail('Rates unavailable: ' + (err && err.message ? err.message : err));
+      } finally {
+        pending = Math.max(0, pending - 1);
+      }
+    };
+    $('dy-fx-from').addEventListener('change', load);
+    $('dy-fx-to').addEventListener('change', () => {
+      const to = $('dy-fx-to').value;
+      if (!table || $('dy-fx-from').value === to || table.rates[to]) convert();
+      else load();
+    });
+    $('dy-fx-amt').addEventListener('input', convert);
+    retryBtn.addEventListener('click', load);
+    $('dy-fx-swap').addEventListener('click', () => {
+      const a = $('dy-fx-from').value;
+      $('dy-fx-from').value = $('dy-fx-to').value;
+      $('dy-fx-to').value = a;
+      load();
+    });
+    load();
   }
 }

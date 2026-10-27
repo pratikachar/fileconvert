@@ -401,9 +401,14 @@ export function intermediateAudioExt(containerExt) {
  * Mux an already-encoded audio track with a copied video stream.
  * Deliberately filter-free: `-c:v copy` combined with `-af` traps the pinned
  * wasm core (verified live), so video-out always runs as denoise-then-mux.
+ *
+ * The video map is optional (`0:v:0?`): a .webm/.mp4 can legitimately hold
+ * only an audio track (voice memos recorded by this app are audio-only
+ * WEBM), and a required map kills the whole command with
+ * "Stream map '0:v:0' matches no streams".
  */
 export function buildRemux({ videoIn, audioIn, outName }) {
-  return ['-i', videoIn, '-i', audioIn, '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', '-shortest', '-y', outName];
+  return ['-i', videoIn, '-i', audioIn, '-map', '0:v:0?', '-map', '1:a:0', '-c', 'copy', '-shortest', '-y', outName];
 }
 
 /** Above this many seconds of audio, warn that the run will take a while. */

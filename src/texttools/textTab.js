@@ -4,6 +4,7 @@
  * JsBarcode is lazy-imported so the ~100 KB only downloads when requested.
  */
 import { marked } from 'marked';
+import { revealPanel } from '../utils/scrollPanel.js';
 import {
   formatJSON, b64encode, b64decode, urlEncode, urlDecode, parseJWT,
   genPassword, passwordCharset, countWords, diffLines, UNIT_CATEGORIES,
@@ -64,6 +65,7 @@ export function setupTextTab() {
     activeTool = btn.dataset.tool;
     renderTextTools();
     renderTextPanel();
+    revealPanel($('text-panel'));
   });
   // Shorter rail labels on phones (rail only - the open panel is untouched).
   if (window.matchMedia) {

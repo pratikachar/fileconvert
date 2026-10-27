@@ -5,6 +5,7 @@
 
 import { runFFmpeg, fsName, getFFmpeg, resetFFmpegEngine, isFFmpegLoaded, isFFmpegLoading, getRecentFFmpegLogs as getFFmpegLogs, clearFFmpegLogs } from '../converters/media.js';
 import * as ops from './ops.js';
+import { revealPanel } from '../utils/scrollPanel.js';
 import {
   computePeaks,
   computePeaksFromPcm,
@@ -66,6 +67,19 @@ function toast(msg) {
 
 function activeFile() {
   return state.files.find((f) => f.id === state.activeId) || null;
+}
+
+/** Keep failed-run details on screen (toasts time out and swallow the cause). */
+function showRunError(msg) {
+  const box = $('audio-error');
+  const text = $('audio-error-text');
+  if (!box || !text) return;
+  text.textContent = String(msg || 'Unknown error');
+  box.classList.remove('hidden');
+}
+function clearRunError() {
+  const box = $('audio-error');
+  if (box) box.classList.add('hidden');
 }
 
 function bucketCount() {
@@ -217,6 +231,16 @@ export function setupAudioTab() {
 
   $('audio-add-more').addEventListener('click', () => input.click());
 
+  const errCopy = $('audio-error-copy');
+  if (errCopy) {
+    errCopy.addEventListener('click', async () => {
+      const txt = ($('audio-error-text') || {}).textContent || '';
+      if (!txt) return;
+      try { await navigator.clipboard.writeText(txt); toast('Error details copied'); }
+      catch { toast('Clipboard blocked - select the text manually'); }
+    });
+  }
+
   // Multi-file drop anywhere in the workspace, so adding more files never
   // requires going back to the (hidden) upload zone.
   const workspace = $('audio-workspace');
@@ -262,6 +286,7 @@ export function setupAudioTab() {
     updateOutExtOptions();
     renderTools();
     renderPanel();
+    revealPanel($('audio-tool-panel'));
   });
   // Shorter rail labels on phones (rail only - the open panel is untouched,
   // so no input state is ever lost on rotate/resize).
@@ -328,13 +353,15 @@ function updateBitrateVisibility() {
 
 /** Output extension actually used (denoise video mode keeps the container). */
 function denoiseVideoOut() {
+  // An audio-only .webm has no picture to keep: process it as audio.
+  if (!hasVideoTrack(activeFile())) return false;
   const el = $('ao-dn-vout');
   return !el || el.value === 'video';
 }
 
 function effectiveOutExt() {
   const item = activeFile();
-  if (state.tool === 'denoise' && item && item.isVideo && denoiseVideoOut()) return item.ext;
+  if (state.tool === 'denoise' && item && hasVideoTrack(item) && denoiseVideoOut()) return item.ext;
   if (state.tool === 'tags' && item) return item.ext;
   return fmtOutExt();
 }
@@ -346,6 +373,41 @@ function resizeCanvas() {
   const h = canvas.clientHeight || 140;
   canvas.width = Math.max(1, Math.floor(w * dpr));
   canvas.height = Math.max(1, Math.floor(h * dpr));
+}
+
+/** Compute a video's real track presence once, without decoding frames. */
+function probeVideoTrack(file) {
+  return new Promise((resolve) => {
+    let url = null;
+    let done = false;
+    let timer = null;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { if (url) URL.revokeObjectURL(url); } catch { /* ignore */ }
+      resolve(val);
+    };
+    timer = setTimeout(() => finish(null), 5000);
+    try {
+      url = URL.createObjectURL(file);
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.muted = true;
+      v.onloadedmetadata = () => finish(!!(v.videoWidth && v.videoHeight));
+      v.onerror = () => finish(null); // unreadable here: fall back to the extension
+      v.src = url;
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+/** True only when the file really carries a picture track. Audio-only .webm
+ *  (the app's own mic recordings) used to be treated as video, which made the
+ *  denoise two-pass run map a missing video stream and fail outright. */
+function hasVideoTrack(item) {
+  return !!item && !!item.isVideo && item.hasVideo !== false;
 }
 
 // ============================================
@@ -383,10 +445,27 @@ function addFiles(list) {
       size: file.size,
       isVideo: ops.isVideoExt(ext),
       isImage: ops.isImageExt(ext),
+      hasVideo: null, // probed below for video containers; null = "assume video"
       duration: null,
       sampleRate: null,
       peaks: null,
       url: URL.createObjectURL(file),
+    });
+  }
+
+  // A .webm/.mp4 without a picture track is audio in practice. Probe once so
+  // video-only tools (Trim Video, video-out denoise) do not offer a run that
+  // MUST fail, and so voice recordings can be merged/denoised as audio.
+  for (const item of state.files) {
+    if (!item.isVideo || item.hasVideo !== null) continue;
+    probeVideoTrack(item.file).then((has) => {
+      if (has === null) return;
+      const live = state.files.find((f) => f.id === item.id);
+      if (!live) return;
+      live.hasVideo = has;
+      renderFileList();
+      renderTools();
+      if (state.activeId === live.id) renderPanel();
     });
   }
 
@@ -495,7 +574,7 @@ function renderFileList() {
       const dur = f.duration ? ` · ${formatTime(f.duration)}` : '';
       const armed = state.confirm.kind === 'file' && state.confirm.id === f.id;
       return `<div class="audio-file-chip${f.id === state.activeId ? ' active' : ''}" data-id="${f.id}" role="button" tabindex="0">
-        <span class="af-icon">${f.isVideo ? '🎬' : f.isImage ? '🖼' : '🎵'}</span>
+        <span class="af-icon">${hasVideoTrack(f) ? '🎬' : f.isImage ? '🖼' : '🎵'}</span>
         <span class="af-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
         <span class="af-meta">${formatBytes(f.size)}${dur}</span>
         <button type="button" class="af-del${armed ? ' armed' : ''}" data-del="${f.id}"
@@ -550,7 +629,7 @@ async function setActive(id) {
     await ensurePeaks(item, (frac, msg) => {
       meta.textContent = `${msg || 'Decoding…'} ${Math.round(frac * 100)}%`;
     });
-    meta.textContent = `${item.name} · ${item.isVideo ? 'Video' : 'Audio'} · ${formatTime(item.duration)} · ${item.sampleRate ? `${Math.round(item.sampleRate / 1000)} kHz · ` : ''}waveform via ${item.waveSource}`;
+    meta.textContent = `${item.name} · ${hasVideoTrack(item) ? 'Video' : 'Audio'} · ${formatTime(item.duration)} · ${item.sampleRate ? `${Math.round(item.sampleRate / 1000)} kHz · ` : ''}waveform via ${item.waveSource}`;
     $('audio-wave-note').classList.toggle('hidden', !!item.peaks);
     selectFull();
     renderFileList();
@@ -808,7 +887,7 @@ async function previewSelection() {
 // ============================================
 function renderTools() {
   const item = activeFile();
-  const audioCount = state.files.filter((f) => !f.isVideo && !f.isImage).length;
+  const audioCount = state.files.filter((f) => !f.isImage && !hasVideoTrack(f)).length;
   const imageCount = state.files.filter((f) => f.isImage).length;
   const narrow = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
   const bar = $('audio-toolbar');
@@ -819,8 +898,10 @@ function renderTools() {
       disabled = true;
       why = 'Images can only go to Slideshow or GIF → Video - pick an audio or video file for the other tools.';
     } else if (t.needsVideo) {
-      disabled = !(item && item.isVideo);
-      why = 'Load a video file (MP4/MOV/MKV/AVI/WEBM) first.';
+      disabled = !hasVideoTrack(item);
+      why = item && item.isVideo
+        ? `This ${item.ext.toUpperCase()} has no picture track (audio-only) - use Cut/Merge for the sound, or load a real video.`
+        : 'Load a video file with a picture track (MP4/MOV/MKV/AVI/WEBM) first.';
     } else if (t.needsGif) {
       disabled = !(item && item.ext === 'gif');
       why = 'Load an animated GIF first.';
@@ -944,7 +1025,7 @@ function renderPanel() {
   }
 
   if (t === 'merge') {
-    const audioOnly = state.files.filter((f) => !f.isVideo && !f.isImage);
+    const audioOnly = state.files.filter((f) => !f.isImage && !hasVideoTrack(f));
     const videos = state.files.filter((f) => f.isVideo);
     const images = state.files.filter((f) => f.isImage);
     el.innerHTML = `
@@ -953,7 +1034,7 @@ function renderPanel() {
           const armed = state.confirm.kind === 'file' && state.confirm.id === f.id;
           return `<div class="audio-result${armed ? ' armed' : ''}">
           <span class="ar-name">${i + 1}. ${escapeHtml(f.name)}</span>
-          <span class="ar-meta">${f.isVideo ? 'video - skipped' : f.isImage ? 'image - skipped' : formatBytes(f.size)}</span>
+          <span class="ar-meta">${hasVideoTrack(f) ? 'video - skipped' : f.isImage ? 'image - skipped' : formatBytes(f.size)}</span>
           <span class="ar-actions">
             <button type="button" class="btn-secondary btn-mini" data-mv="up" data-i="${i}"${i === 0 ? ' disabled' : ''}>↑</button>
             <button type="button" class="btn-secondary btn-mini" data-mv="down" data-i="${i}"${i === state.files.length - 1 ? ' disabled' : ''}>↓</button>
@@ -1303,12 +1384,13 @@ function renderPanel() {
       <label class="control-inline"><input type="checkbox" id="ao-dn-profile"${profOk ? '' : ' disabled'} />
         Use the waveform selection as the noise profile${profOk ? ` (${ops.r3(state.sel.start)}s - ${ops.r3(state.sel.end)}s)` : ' (drag a short noise-only part first)'}</label>
       <p class="field-hint">Pick a stretch with ONLY background noise in it (room tone, no speech or music) - like a noise profile. Whole-file selections are rejected.</p>
-      ${item && item.isVideo ? `
+      ${item && hasVideoTrack(item) ? `
       <label class="control-label" for="ao-dn-vout">For this video, output</label>
       <select id="ao-dn-vout" class="form-select">
         <option value="video" selected>Same video with cleaned audio (.${item.ext})</option>
         <option value="audio">Audio only (uses the format below)</option>
-      </select>` : ''}
+      </select>` : item && item.isVideo ? `
+      <p class="editor-hint">This file has no video track (audio-only ${item.ext.toUpperCase()}) - it is cleaned as audio in the format below.</p>` : ''}
       <details class="au-advanced">
         <summary>Advanced</summary>
         <label class="control-label" for="ao-dn-nr">Strength (<span class="range-val" id="ao-dn-nrv">12 dB</span>)</label>
@@ -1450,7 +1532,7 @@ function renderPanel() {
 
   if (t === 'vslideshow') {
     const simgs = state.files.filter((f) => f.isImage);
-    const sauds = state.files.filter((f) => !f.isVideo && !f.isImage);
+    const sauds = state.files.filter((f) => !f.isImage && !hasVideoTrack(f));
     el.innerHTML = `
       <p class="field-hint">Builds an MP4 from <b>${simgs.length}</b> loaded image${simgs.length === 1 ? '' : 's'}, in file-list order. Mixed portrait/landscape sources are padded onto one canvas.</p>
       <label class="control-label" for="ao-ss-secs">Seconds per photo</label>
@@ -1471,7 +1553,7 @@ function renderPanel() {
   }
 
   if (t === 'vreplace') {
-    const rauds = state.files.filter((f) => !f.isVideo && !f.isImage);
+    const rauds = state.files.filter((f) => !f.isImage && !hasVideoTrack(f));
     el.innerHTML = `
       <p class="field-hint">Swaps the video's soundtrack for one of your loaded audio files. The picture is stream-copied with no quality loss; the new track is re-encoded to fit the container (AAC/MP3/Vorbis), so even a WAV works.</p>
       <label class="control-label" for="ao-vr-audio">New soundtrack</label>
@@ -1576,7 +1658,8 @@ function readPanel() {
 // ============================================
 /** Returns an error string when a video trim cannot run as configured, else null. */
 function vtrimGuardrail(item, o, outExt) {
-  if (!item.isVideo) return 'Trim Video needs a video file (MP4/MOV/MKV/AVI/WEBM).';
+  if (!item || !item.isVideo) return 'Trim Video needs a video file (MP4/MOV/MKV/AVI/WEBM).';
+  if (!hasVideoTrack(item)) return 'This file has no picture track (audio-only ' + item.ext.toUpperCase() + ') - use Cut for audio, or Extract Audio on a real video.';
   if (!(o.end > o.start)) return 'Pick an end time after the start time.';
   if (item.duration && o.start >= item.duration) return `Start time is past the end of the clip (${formatTime(item.duration)}).`;
   if (o.videoMode && !ops.canLosslessVideoTrim(item.ext, outExt)) {
@@ -1640,6 +1723,7 @@ async function runDenoiseVideo(item, o, { previewFrom = null, previewLen = null,
 async function previewDenoise() {
   const item = activeFile();
   if (!item) return;
+  clearRunError();
   const o = readPanel();
   if (o.profile) {
     const problem = denoiseGuardrail(item, o);
@@ -1652,7 +1736,7 @@ async function previewDenoise() {
     from = Math.max(0, state.sel.start - 2);
     len = Math.min((item.duration || from + 10) - from, (state.sel.end - state.sel.start) + 4, 12);
   }
-  const videoMode = item.isVideo && o.videoOut;
+  const videoMode = hasVideoTrack(item) && o.videoOut;
   const ext = videoMode ? item.ext : fmtOutExt();
   const br = bitrate();
   const audioMeta = ops.AUDIO_OUT_FORMATS.find((f) => f.ext === ext);
@@ -1712,7 +1796,9 @@ async function previewDenoise() {
   } catch (err) {
     if (liveRunId !== myRun) return; // cancelled - cancelAudioRun already reported
     console.error('Denoise preview failed:', err);
-    toast((err && err.message ? err.message : String(err)).slice(0, 200));
+    const msg = String((err && err.message) || err);
+    showRunError(msg);
+    toast(msg.slice(0, 180));
     progress.classList.add('hidden');
   } finally {
     stopElapsed();
@@ -1726,6 +1812,7 @@ async function runTool() {
   const item = activeFile();
   if (!item) return;
 
+  clearRunError();
   const o = readPanel();
   const outExt = effectiveOutExt();
   const br = bitrate();
@@ -1769,7 +1856,7 @@ async function runTool() {
     }
 
     if (state.tool === 'merge') {
-      const mergeItems = state.files.filter((f) => !f.isVideo && !f.isImage);
+      const mergeItems = state.files.filter((f) => !f.isImage && !hasVideoTrack(f));
       const names = mergeItems.map((f, i) => fsName(`m${i}.${f.ext}`));
       inputs = mergeItems.map((f, i) => ({ name: names[i], file: f.file }));
       inputs.push({ name: 'list.txt', data: ops.concatList(names) });
@@ -1896,7 +1983,7 @@ async function runTool() {
         runBtn.disabled = false;
         return;
       } else if (state.tool === 'denoise') {
-        const videoMode = item.isVideo && o.videoOut;
+        const videoMode = hasVideoTrack(item) && o.videoOut;
         const guard = denoiseGuardrail(item, o);
         if (guard) { bailRun(guard); return; }
         if (item.duration && item.duration > ops.LONG_DENOISE_WARN_SECS) {
@@ -1968,7 +2055,7 @@ async function runTool() {
       } else if (state.tool === 'vslideshow') {
         const simgs = state.files.filter((f) => f.isImage).slice(0, 12);
         if (simgs.length < 2) { bailRun('Load at least 2 images to build a slideshow.'); return; }
-        const music = o.musicId ? state.files.find((f) => f.id === o.musicId && !f.isVideo && !f.isImage) : null;
+        const music = o.musicId ? state.files.find((f) => f.id === o.musicId && !f.isImage && !hasVideoTrack(f)) : null;
         const names = simgs.map((f, i) => fsName('ss' + i + '.' + f.ext));
         inputs = simgs.map((f, i) => ({ name: names[i], file: f.file }));
         let musicName = null;
@@ -1979,7 +2066,7 @@ async function runTool() {
         args = ops.buildSlideshow({ inNames: names, outName, secs: o.secs, width: sw, height: sh, musicName });
         downloadName = 'slideshow-' + simgs.length + '-photos.' + outExt;
       } else if (state.tool === 'vreplace') {
-        const track = state.files.find((f) => f.id === o.audioId && !f.isVideo && !f.isImage);
+        const track = state.files.find((f) => f.id === o.audioId && !f.isImage && !hasVideoTrack(f));
         if (!track) { bailRun('Pick one of your loaded audio files as the new soundtrack.'); return; }
         if (!ops.canLosslessVideoTrim(item.ext, outExt)) { bailRun('A ' + item.ext.toUpperCase() + ' picture track cannot be muxed into ' + outExt.toUpperCase() + ' - keep the source container or pick MKV.'); return; }
         const aName = fsName('track.' + track.ext);
@@ -2013,7 +2100,9 @@ async function runTool() {
   } catch (err) {
     if (liveRunId !== myRun) return; // cancelled - cancelAudioRun already reported
     console.error('Audio tool failed:', err);
-    toast((err && err.message ? err.message : String(err)).slice(0, 200));
+    const msg = String((err && err.message) || err);
+    showRunError(msg);
+    toast(msg.slice(0, 180));
     progress.classList.add('hidden');
   } finally {
     stopElapsed();

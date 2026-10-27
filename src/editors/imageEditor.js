@@ -8,7 +8,7 @@ import { resizeLanczos } from './resample.js';
 import { scanBuffer, formatFromName } from '../metadataRemover.js';
 import JSZip from 'jszip';
 import { extractPalette } from './palette.js';
-import { recognizeImage, ocrSizeMB } from './ocr.js';
+import { recognizeImage, ocrSizeMB, OCR_MODES, OCR_LAYOUTS, OCR_PASSES } from './ocr.js';
 
 const EDITOR_MAX_DIM = 2400;
 const HISTORY_LIMIT = 25;
@@ -906,57 +906,253 @@ function applyToolShorts() {
 }
 
 // ---------- Watermark ----------
+/** Nine-position grid shared by the watermark + meme panels. */
+const WM_POS = {
+  tl: { label: 'Top left', x: 0.08, y: 0.08 },
+  tc: { label: 'Top center', x: 0.5, y: 0.08 },
+  tr: { label: 'Top right', x: 0.92, y: 0.08 },
+  ml: { label: 'Middle left', x: 0.08, y: 0.5 },
+  mc: { label: 'Center', x: 0.5, y: 0.5 },
+  mr: { label: 'Middle right', x: 0.92, y: 0.5 },
+  bl: { label: 'Bottom left', x: 0.08, y: 0.92 },
+  bc: { label: 'Bottom center', x: 0.5, y: 0.92 },
+  br: { label: 'Bottom right', x: 0.92, y: 0.92 },
+};
+
 function openWatermark() {
-  const s = { text: '© FileForge', pos: 'br', size: 36, opacity: 60, color: '#ffffff' };
-  const POS = { tl: 'Top left', tc: 'Top center', tr: 'Top right', ml: 'Middle left', mc: 'Center', mr: 'Middle right', bl: 'Bottom left', bc: 'Bottom center', br: 'Bottom right' };
-  controlsEl.innerHTML = `
-    <h3 class="controls-title">💧 Watermark</h3>
-    <label class="control-label">Text</label>
-    <input type="text" id="wm-text" class="form-input" value="© FileForge" maxlength="60" />
-    <label class="control-label">Position</label>
-    <select id="wm-pos" class="form-select">${Object.entries(POS).map(([v, l]) => `<option value="${v}"${v === 'br' ? ' selected' : ''}>${l}</option>`).join('')}</select>
-    ${slider('size', 'Size', 12, 200, 36, 'px')}
-    ${slider('opacity', 'Opacity', 5, 100, 60, '%')}
-    <label class="control-label">Color</label>
-    <input type="color" id="wm-color" value="#ffffff">
-    <div class="editor-actions">
-      <button class="btn-secondary" data-act="cancel">Cancel</button>
-      <button class="btn-primary" data-act="apply">Apply</button>
-    </div>`;
-  const preview = () => {
-    const W = editorCanvas.width, H = editorCanvas.height;
-    editorCtx.clearRect(0, 0, W, H);
-    editorCtx.drawImage(toolBaseCanvas, 0, 0);
-    if (!s.text.trim()) return;
-    const pad = Math.max(10, Math.round(Math.min(W, H) * 0.03));
+  const MAX_ITEMS = 12;
+  const items = [];
+  const hits = new Map(); // item id -> overlay element
+  let seq = 0;
+  let selected = 0;
+
+  const clamp01 = (v) => Math.min(0.98, Math.max(0.02, v));
+  const textFont = (it) => `600 ${it.size}px Inter, system-ui, sans-serif`;
+
+  items.push({ id: ++seq, type: 'text', text: '© FileForge', x: 0.85, y: 0.94, size: 36, opacity: 0.6, color: '#ffffff' });
+
+  /** Rendered size of an item in canvas pixels. */
+  const measure = (it) => {
+    if (it.type === 'image') {
+      const w = Math.max(8, it.scale * editorCanvas.width);
+      return { w, h: (w * it.img.height) / Math.max(1, it.img.width) };
+    }
     editorCtx.save();
-    editorCtx.globalAlpha = s.opacity / 100;
-    editorCtx.font = `600 ${s.size}px Inter, system-ui, sans-serif`;
-    editorCtx.fillStyle = s.color;
-    editorCtx.shadowColor = 'rgba(0,0,0,0.65)';
-    editorCtx.shadowBlur = Math.max(2, Math.round(s.size / 10));
-    const tw = editorCtx.measureText(s.text).width;
-    let x = pad, y = pad + s.size;
-    if (s.pos[1] === 'c') x = (W - tw) / 2;
-    if (s.pos[1] === 'r') x = W - pad - tw;
-    if (s.pos[0] === 'm') y = H / 2 + s.size / 2;
-    if (s.pos[0] === 'b') y = H - pad;
-    editorCtx.fillText(s.text, x, y);
+    editorCtx.font = textFont(it);
+    const w = editorCtx.measureText(it.text || ' ').width;
+    editorCtx.restore();
+    return { w, h: it.size * 1.2 };
+  };
+
+  const drawItem = (it) => {
+    const g = measure(it);
+    const cx = it.x * editorCanvas.width;
+    const cy = it.y * editorCanvas.height;
+    editorCtx.save();
+    editorCtx.globalAlpha = it.opacity;
+    if (it.type === 'image') {
+      editorCtx.shadowColor = 'rgba(0,0,0,0.35)';
+      editorCtx.shadowBlur = 6;
+      editorCtx.drawImage(it.img, cx - g.w / 2, cy - g.h / 2, g.w, g.h);
+    } else {
+      editorCtx.font = textFont(it);
+      editorCtx.textAlign = 'center';
+      editorCtx.textBaseline = 'middle';
+      editorCtx.fillStyle = it.color;
+      editorCtx.shadowColor = 'rgba(0,0,0,0.65)';
+      editorCtx.shadowBlur = Math.max(2, Math.round(it.size / 10));
+      editorCtx.fillText(it.text, cx, cy);
+    }
     editorCtx.restore();
   };
-  $('wm-text').addEventListener('input', (e) => { s.text = e.target.value; preview(); });
-  $('wm-pos').addEventListener('change', (e) => { s.pos = e.target.value; preview(); });
-  $('wm-color').addEventListener('input', (e) => { s.color = e.target.value; preview(); });
-  controlsEl.querySelectorAll('input[type=range]').forEach((inp) => {
-    inp.addEventListener('input', () => {
-      s[inp.dataset.k] = +inp.value;
-      inp.nextElementSibling.textContent = inp.value + (inp.dataset.u || '');
-      preview();
+
+  const positionHits = () => {
+    const m = canvasMetrics();
+    for (const [id, el] of hits) {
+      const it = items.find((x) => x.id === id);
+      if (!it) continue;
+      const g = measure(it);
+      const wDisp = Math.max(24, g.w / m.scale + 14);
+      const hDisp = Math.max(20, g.h / m.scale + 12);
+      el.style.left = `${m.leftInStage + it.x * m.rect.width - wDisp / 2}px`;
+      el.style.top = `${m.topInStage + it.y * m.rect.height - hDisp / 2}px`;
+      el.style.width = `${wDisp}px`;
+      el.style.height = `${hDisp}px`;
+      el.classList.toggle('wm-hit-active', items[selected] === it);
+    }
+  };
+
+  const rebuildHits = () => {
+    overlayEl.querySelectorAll('.wm-hit').forEach((n) => n.remove());
+    hits.clear();
+    for (const it of items) {
+      const el = document.createElement('div');
+      el.className = 'wm-hit';
+      el.title = 'Drag to move · click to edit';
+      overlayEl.appendChild(el);
+      hits.set(it.id, el);
+      let drag = null;
+      el.addEventListener('pointerdown', (e) => {
+        const i = items.indexOf(it);
+        if (i !== selected) { selected = i; renderPanel(); }
+        const m = canvasMetrics();
+        drag = {
+          dx: e.clientX - (m.rect.left + it.x * m.rect.width),
+          dy: e.clientY - (m.rect.top + it.y * m.rect.height),
+        };
+        el.classList.add('dragging');
+        try { el.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+        preview();
+        e.preventDefault();
+      });
+      el.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const m = canvasMetrics();
+        it.x = clamp01((e.clientX - drag.dx - m.rect.left) / m.rect.width);
+        it.y = clamp01((e.clientY - drag.dy - m.rect.top) / m.rect.height);
+        preview();
+      });
+      const end = () => { drag = null; el.classList.remove('dragging'); positionHits(); };
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+    }
+    positionHits();
+  };
+
+  const preview = () => {
+    editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
+    editorCtx.drawImage(toolBaseCanvas, 0, 0);
+    for (const it of items) drawItem(it);
+    positionHits();
+  };
+
+  const posGrid = () => `<div class="wm-pos-grid">${Object.entries(WM_POS).map(([k, p]) =>
+    `<button type="button" class="wm-pos-btn" data-wm-pos="${k}" title="${p.label}">${p.label.split(' ')[0]}</button>`).join('')}</div>`;
+
+  const renderList = () => {
+    const list = $('wm-list');
+    if (!list) return;
+    list.innerHTML = items.map((it, i) => `
+      <div class="wm-row${i === selected ? ' active' : ''}">
+        <button type="button" class="wm-row-name" data-wm-sel="${i}" title="Edit this watermark">${it.type === 'text' ? escapeHtml((it.text || 'Text').slice(0, 26)) : '🖼 Logo'}</button>
+        <button type="button" class="btn-secondary btn-mini" data-wm-del="${i}"${items.length === 1 ? ' disabled title="Keep at least one watermark"' : ' title="Remove this watermark"'}>✕</button>
+      </div>`).join('');
+    list.querySelectorAll('[data-wm-sel]').forEach((b) => {
+      b.addEventListener('click', () => { selected = +b.dataset.wmSel; renderPanel(); });
     });
-  });
-  controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => { editorCtx.drawImage(toolBaseCanvas, 0, 0); closeTool(); });
-  controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => { pushHistory(); closeTool(); });
+    list.querySelectorAll('[data-wm-del]').forEach((b) => {
+      b.addEventListener('click', () => {
+        items.splice(+b.dataset.wmDel, 1);
+        selected = Math.max(0, Math.min(items.length - 1, selected));
+        rebuildHits();
+        preview();
+        renderPanel();
+      });
+    });
+  };
+
+  function renderPanel() {
+    if (typeof controlsEl === 'undefined' || !controlsEl) return;
+    const it = items[selected];
+    controlsEl.innerHTML = `
+      <h3 class="controls-title">💧 Watermark</h3>
+      <p class="editor-hint">Add as many watermarks as you want - text or your own logo. Drag any of them on the photo to move it.</p>
+      <div id="wm-list" class="wm-list"></div>
+      <div class="editor-actions">
+        <button type="button" class="btn-secondary" id="wm-add-text">＋ Text</button>
+        <button type="button" class="btn-secondary" id="wm-add-logo">🖼 Logo</button>
+      </div>
+      <input type="file" id="wm-logo-input" class="editor-file-hidden" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+      <div id="wm-controls">
+        ${!it ? '<p class="editor-hint">Add a watermark to start.</p>' : `
+        ${it.type === 'text' ? `
+          <label class="control-label" for="wm-text">Text</label>
+          <input type="text" id="wm-text" class="form-input" value="${escapeHtml(it.text)}" maxlength="120" />
+          ${slider('wm-size', 'Size', 12, 300, Math.round(it.size), 'px')}
+          <label class="control-label" for="wm-color">Color</label>
+          <input type="color" id="wm-color" value="${it.color}">
+        ` : `
+          ${slider('wm-scale', 'Logo width', 5, 100, Math.round(it.scale * 100), '%')}
+        `}
+          ${slider('wm-opacity', 'Opacity', 5, 100, Math.round(it.opacity * 100), '%')}
+          <label class="control-label">Position</label>
+          ${posGrid()}
+        `}
+      </div>
+      <div class="editor-actions">
+        <button class="btn-secondary" data-act="cancel">Cancel</button>
+        <button class="btn-primary" data-act="apply">Apply</button>
+      </div>`;
+    // slider() renders its own data-k; keep the panel's sliders wired to the item.
+    controlsEl.querySelectorAll('#wm-controls input[type=range]').forEach((inp) => {
+      const k = inp.dataset.k;
+      const key = k === 'wm-size' ? 'size' : k === 'wm-scale' ? 'scale' : 'opacity';
+      inp.addEventListener('input', () => {
+        const it2 = items[selected];
+        if (!it2) return;
+        const v = +inp.value;
+        if (key === 'size') it2.size = v;
+        else if (key === 'scale') it2.scale = v / 100;
+        else it2.opacity = v / 100;
+        inp.nextElementSibling.textContent = `${v}${inp.dataset.u || ''}`;
+        preview();
+        renderList();
+      });
+    });
+    if (it && it.type === 'text') {
+      $('wm-text').addEventListener('input', (e) => { it.text = e.target.value; preview(); renderList(); });
+      $('wm-color').addEventListener('input', (e) => { it.color = e.target.value; preview(); });
+    }
+    controlsEl.querySelectorAll('[data-wm-pos]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const p = WM_POS[b.dataset.wmPos];
+        items[selected].x = p.x;
+        items[selected].y = p.y;
+        preview();
+      });
+    });
+    $('wm-add-text').addEventListener('click', () => {
+      if (items.length >= MAX_ITEMS) { toast(`Up to ${MAX_ITEMS} watermarks at once`); return; }
+      items.push({ id: ++seq, type: 'text', text: '© FileForge', x: 0.5, y: 0.5, size: 36, opacity: 0.6, color: '#ffffff' });
+      selected = items.length - 1;
+      rebuildHits();
+      preview();
+      renderPanel();
+    });
+    $('wm-add-logo').addEventListener('click', () => {
+      if (items.length >= MAX_ITEMS) { toast(`Up to ${MAX_ITEMS} watermarks at once`); return; }
+      $('wm-logo-input').click();
+    });
+    $('wm-logo-input').addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { toast('Pick a PNG, JPG, WEBP or SVG image'); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          items.push({ id: ++seq, type: 'image', img, x: 0.5, y: 0.5, scale: 0.25, opacity: 0.7 });
+          selected = items.length - 1;
+          rebuildHits();
+          preview();
+          renderPanel();
+          toast('Logo added - drag it where you want it');
+        };
+        img.onerror = () => toast('That image could not be read');
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+    controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => { editorCtx.drawImage(toolBaseCanvas, 0, 0); closeTool(); });
+    controlsEl.querySelector('[data-act=apply]').addEventListener('click', () => { pushHistory(); closeTool(); });
+    renderList();
+    positionHits();
+  }
+
+  rebuildHits();
   preview();
+  renderPanel();
 }
 
 // ---------- Pixelate regions ----------
@@ -1146,46 +1342,158 @@ function openShapeCrop() {
 
 // ---------- Meme text ----------
 function openMeme() {
-  const s = { top: 'TOP TEXT', bottom: 'BOTTOM TEXT', size: 64 };
+  const s = {
+    text: { top: 'TOP TEXT', bottom: 'BOTTOM TEXT' },
+    pos: { top: { x: 0.5, y: 0.14 }, bottom: { x: 0.5, y: 0.86 } },
+    size: 64, upper: true, fill: '#ffffff', stroke: '#000000', strokeW: 8,
+  };
+  let active = 'top';
+  const hits = {};
+  const font = () => `bold ${s.size}px Impact, 'Arial Black', 'Anton', sans-serif`;
+
+  /** Break one line into as many lines as needed to fit 92% of the width. */
+  const wrapLines = (raw) => {
+    editorCtx.font = font();
+    const maxW = editorCanvas.width * 0.92;
+    const out = [];
+    for (const para of String(raw || '').split('\n')) {
+      const words = para.split(/\s+/).filter(Boolean);
+      if (!words.length) continue;
+      let line = '';
+      for (const w of words) {
+        const next = line ? `${line} ${w}` : w;
+        if (line && editorCtx.measureText(next).width > maxW) { out.push(line); line = w; }
+        else line = next;
+      }
+      if (line) out.push(line);
+    }
+    return out;
+  };
+  const geom = (key) => {
+    const lines = wrapLines(s.upper ? s.text[key].toUpperCase() : s.text[key]);
+    editorCtx.font = font();
+    const lh = s.size * 1.12;
+    let w = 0;
+    for (const ln of lines) w = Math.max(w, editorCtx.measureText(ln).width);
+    return { lines, lh, w, h: lines.length * lh };
+  };
+  const drawBlock = (key) => {
+    const g = geom(key);
+    if (!g.lines.length) return;
+    const W = editorCanvas.width, H = editorCanvas.height;
+    const cx = s.pos[key].x * W;
+    const cy = s.pos[key].y * H;
+    editorCtx.save();
+    editorCtx.font = font();
+    editorCtx.textAlign = 'center';
+    editorCtx.textBaseline = 'middle';
+    editorCtx.lineJoin = 'round';
+    editorCtx.miterLimit = 2;
+    editorCtx.lineWidth = s.strokeW;
+    editorCtx.strokeStyle = s.stroke;
+    editorCtx.fillStyle = s.fill;
+    const startY = cy - g.h / 2 + g.lh / 2;
+    g.lines.forEach((ln, i) => {
+      const y = startY + i * g.lh;
+      if (s.strokeW > 0) editorCtx.strokeText(ln, cx, y);
+      editorCtx.fillText(ln, cx, y);
+    });
+    editorCtx.restore();
+  };
+  /** Invisible drag handles sized to the rendered text block (display px). */
+  const paintHits = () => {
+    const m = canvasMetrics();
+    for (const key of ['top', 'bottom']) {
+      const el = hits[key];
+      const g = geom(key);
+      if (!g.lines.length) { el.style.display = 'none'; continue; }
+      el.style.display = 'block';
+      const wDisp = Math.max(30, g.w / m.scale + 18);
+      const hDisp = Math.max(24, g.h / m.scale + 12);
+      el.style.left = `${m.leftInStage + s.pos[key].x * m.rect.width - wDisp / 2}px`;
+      el.style.top = `${m.topInStage + s.pos[key].y * m.rect.height - hDisp / 2}px`;
+      el.style.width = `${wDisp}px`;
+      el.style.height = `${hDisp}px`;
+      el.classList.toggle('meme-hit-active', active === key);
+    }
+  };
+  const preview = () => {
+    editorCtx.clearRect(0, 0, editorCanvas.width, editorCanvas.height);
+    editorCtx.drawImage(toolBaseCanvas, 0, 0);
+    drawBlock('top');
+    drawBlock('bottom');
+    paintHits();
+  };
+
+  for (const key of ['top', 'bottom']) {
+    const el = document.createElement('div');
+    el.className = 'meme-hit';
+    el.title = `Drag the ${key} text`;
+    overlayEl.appendChild(el);
+    hits[key] = el;
+    let drag = null;
+    el.addEventListener('pointerdown', (e) => {
+      active = key;
+      const m = canvasMetrics();
+      drag = {
+        dx: e.clientX - (m.rect.left + s.pos[key].x * m.rect.width),
+        dy: e.clientY - (m.rect.top + s.pos[key].y * m.rect.height),
+      };
+      el.classList.add('dragging');
+      try { el.setPointerCapture(e.pointerId); } catch { /* synthetic pointer */ }
+      preview();
+      e.preventDefault();
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const m = canvasMetrics();
+      s.pos[key].x = Math.min(0.98, Math.max(0.02, (e.clientX - drag.dx - m.rect.left) / m.rect.width));
+      s.pos[key].y = Math.min(0.98, Math.max(0.02, (e.clientY - drag.dy - m.rect.top) / m.rect.height));
+      preview();
+    });
+    const end = () => { drag = null; el.classList.remove('dragging'); paintHits(); };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('pointercancel', end);
+  }
+
   controlsEl.innerHTML = `
     <h3 class="controls-title">😂 Meme Text</h3>
     <label class="control-label">Top</label>
     <input type="text" id="meme-top" class="form-input" value="TOP TEXT" maxlength="80" />
     <label class="control-label">Bottom</label>
     <input type="text" id="meme-bottom" class="form-input" value="BOTTOM TEXT" maxlength="80" />
-    ${slider('size', 'Size', 24, 160, 64, 'px')}
+    ${slider('size', 'Size', 24, 200, 64, 'px')}
+    ${slider('strokeW', 'Outline thickness', 0, 20, 8, 'px')}
+    <div class="wm-color-row">
+      <label class="control-label" for="meme-fill">Text colour</label>
+      <input type="color" id="meme-fill" value="#ffffff">
+      <label class="control-label" for="meme-stroke">Outline</label>
+      <input type="color" id="meme-stroke" value="#000000">
+    </div>
+    <label class="control-inline"><input type="checkbox" id="meme-upper" checked /> ALL CAPS</label>
+    <p class="editor-hint">👆 Drag either line on the image to put it exactly where you want it. Text wraps automatically.</p>
+    <div class="editor-actions">
+      <button type="button" class="btn-secondary" id="meme-reset">Reset positions</button>
+    </div>
     <div class="editor-actions">
       <button class="btn-secondary" data-act="cancel">Cancel</button>
       <button class="btn-primary" data-act="apply">Apply</button>
     </div>`;
-  const preview = () => {
-    const W = editorCanvas.width, H = editorCanvas.height;
-    editorCtx.clearRect(0, 0, W, H);
-    editorCtx.drawImage(toolBaseCanvas, 0, 0);
-    editorCtx.save();
-    editorCtx.font = `bold ${s.size}px Impact, 'Arial Black', sans-serif`;
-    editorCtx.textAlign = 'center';
-    editorCtx.lineJoin = 'round';
-    editorCtx.lineWidth = Math.max(2, Math.round(s.size / 10));
-    editorCtx.strokeStyle = '#000';
-    editorCtx.fillStyle = '#fff';
-    if (s.top.trim()) {
-      const t = s.top.toUpperCase();
-      editorCtx.strokeText(t, W / 2, s.size * 1.1);
-      editorCtx.fillText(t, W / 2, s.size * 1.1);
-    }
-    if (s.bottom.trim()) {
-      const t = s.bottom.toUpperCase();
-      editorCtx.strokeText(t, W / 2, H - s.size * 0.35);
-      editorCtx.fillText(t, W / 2, H - s.size * 0.35);
-    }
-    editorCtx.restore();
-  };
-  $('meme-top').addEventListener('input', (e) => { s.top = e.target.value; preview(); });
-  $('meme-bottom').addEventListener('input', (e) => { s.bottom = e.target.value; preview(); });
-  controlsEl.querySelector('input[type=range]').addEventListener('input', (e) => {
-    s.size = +e.target.value;
-    e.target.nextElementSibling.textContent = e.target.value + 'px';
+  $('meme-top').addEventListener('input', (e) => { s.text.top = e.target.value; preview(); });
+  $('meme-bottom').addEventListener('input', (e) => { s.text.bottom = e.target.value; preview(); });
+  $('meme-upper').addEventListener('change', (e) => { s.upper = e.target.checked; preview(); });
+  $('meme-fill').addEventListener('input', (e) => { s.fill = e.target.value; preview(); });
+  $('meme-stroke').addEventListener('input', (e) => { s.stroke = e.target.value; preview(); });
+  controlsEl.querySelectorAll('input[type=range]').forEach((inp) => {
+    inp.addEventListener('input', () => {
+      s[inp.dataset.k] = +inp.value;
+      inp.nextElementSibling.textContent = inp.value + (inp.dataset.u || '');
+      preview();
+    });
+  });
+  $('meme-reset').addEventListener('click', () => {
+    s.pos.top = { x: 0.5, y: 0.14 };
+    s.pos.bottom = { x: 0.5, y: 0.86 };
     preview();
   });
   controlsEl.querySelector('[data-act=cancel]').addEventListener('click', () => { editorCtx.drawImage(toolBaseCanvas, 0, 0); closeTool(); });
@@ -1579,6 +1887,14 @@ async function openOcr() {
   controlsEl.innerHTML = `
     <h3 class="controls-title">📝 OCR - Image to Text</h3>
     <p class="editor-hint">Reads printed English text out of the photo. Best on high-contrast scans and screenshots.</p>
+    <label class="control-label" for="ocr-mode">Quality</label>
+    <select id="ocr-mode" class="form-select">
+      ${Object.entries(OCR_MODES).map(([v, m]) => `<option value="${v}"${v === 'smart' ? ' selected' : ''}>${m.label}</option>`).join('')}
+    </select>
+    <label class="control-label" for="ocr-layout">Text layout</label>
+    <select id="ocr-layout" class="form-select">
+      ${Object.entries(OCR_LAYOUTS).map(([v, m]) => `<option value="${v}"${v === 'auto' ? ' selected' : ''}>${m.label}</option>`).join('')}
+    </select>
     <div class="editor-actions">
       <button type="button" class="btn-primary" id="ocr-go">Extract text</button>
     </div>
@@ -1590,7 +1906,7 @@ async function openOcr() {
       <button type="button" class="btn-secondary" id="ocr-copy">Copy text</button>
       <button class="btn-secondary" data-act="close">Close</button>
     </div>
-    <p class="field-hint">Free and offline after the one-time ~${ocrSizeMB()} MB engine download. Handwriting and decorative fonts will not read well - that is a limit of the engine, not a bug.</p>`;
+    <p class="field-hint">Free and offline after the one-time ~${ocrSizeMB()} MB engine download. Smart mode tries contrast-boosted, untouched and black-and-white versions of the image, then keeps the best reading. Handwriting and decorative fonts still will not read well - that is a limit of the engine, not a bug.</p>`;
   controlsEl.querySelector('[data-act=close]').addEventListener('click', closeTool);
   $('ocr-copy').addEventListener('click', async () => {
     const v = $('ocr-result').value;
@@ -1607,13 +1923,23 @@ async function openOcr() {
     try {
       const res = await recognizeImage(editorCanvas, (m) => {
         const pct = Math.round(((m && m.progress) || 0) * 100);
-        const label = !m || !m.status ? 'Loading' : m.status === 'recognizing text' ? 'Reading text' : m.status;
-        setLoading(true, `${label}… ${pct}%`);
-      });
+        const passInfo = m && m.passes > 1 ? ` · pass ${m.pass}/${m.passes}` : '';
+        const label = !m || !m.status ? 'Loading'
+          : m.status === 'recognizing text' ? 'Reading text'
+            : String(m.status).startsWith('preparing') ? 'Preparing image'
+              : m.status;
+        setLoading(true, `${label}${passInfo}… ${pct}%`);
+      }, { mode: $('ocr-mode').value, layout: $('ocr-layout').value });
       $('ocr-result').value = res.text;
-      $('ocr-stats').textContent = res.text
-        ? `${res.words} words · ${res.text.length} chars · confidence ${res.confidence}%`
-        : 'No text found - try a sharper, higher-contrast image.';
+      if (res.text) {
+        const passName = OCR_PASSES[res.mode] || res.mode;
+        $('ocr-stats').textContent = `${res.words} words · ${res.text.length} chars · confidence ${res.confidence}% · ${passName} won`;
+      } else {
+        const layout = $('ocr-layout').value;
+        $('ocr-stats').textContent = layout === 'sparse'
+          ? 'No text found - the image may be too blurry, too small, or genuinely blank. Try "Smart" quality and a phone photo taken straight on.'
+          : 'No text found - try a sharper, higher-contrast image, or set the layout to "Sparse text" for signs, memes and screens.';
+      }
       $('ocr-status').textContent = '';
     } catch (err) {
       console.error('OCR failed:', err);

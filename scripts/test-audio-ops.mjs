@@ -187,7 +187,8 @@ check('flac codec', has(codecArgs('flac'), '-c:a', 'flac'));
   check('denoise from video drops video stream', has(va, '-vn', '-map', '0:a:0') && !va.includes('-c:v'));
   // mux step for video-out
   const mx = buildRemux({ videoIn: 'v.mp4', audioIn: 'a.m4a', outName: 'out.mp4' });
-  check('remux maps + copies', has(mx, '-i', 'v.mp4', '-i', 'a.m4a', '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy', '-shortest', '-y', 'out.mp4'));
+  check('remux maps + copies', has(mx, '-i', 'v.mp4', '-i', 'a.m4a', '-map', '0:v:0?', '-map', '1:a:0', '-c', 'copy', '-shortest', '-y', 'out.mp4'));
+  check('remux video map is optional (audio-only webm source)', mx.includes('0:v:0?'));
   check('remux has no filters', !mx.includes('-af') && !mx.includes('-c:v'));
   // preview window seeks before input
   const pv = buildDenoise({ inName: 'in.wav', outName: 'out.mp3', previewFrom: 60, previewLen: 8 });
@@ -339,7 +340,7 @@ check('flac codec', has(codecArgs('flac'), '-c:a', 'flac'));
 
   // replace-audio reuses the proven filter-free remux
   const rx = buildRemux({ videoIn: 'v.mp4', audioIn: 'a.m4a', outName: 'o.mp4' });
-  check('replace: copies both streams, no filters', has(rx, '-map', '0:v:0', '-map', '1:a:0', '-c', 'copy') && !rx.join(' ').includes('-af') && !rx.join(' ').includes('-vf'));
+  check('replace: copies both streams, no filters', has(rx, '-map', '0:v:0?', '-map', '1:a:0', '-c', 'copy') && !rx.join(' ').includes('-af') && !rx.join(' ').includes('-vf'));
 
   // registry: new tools gated correctly
   const tFrames = TOOLS.find(function (t) { return t.id === 'vframes'; });

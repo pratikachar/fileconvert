@@ -97,7 +97,7 @@
           </button>
           <button class="nav-tab" id="tab-btn-audio" data-tab="audio" role="tab" aria-selected="false" aria-label="Audio and Video Tools" title="Audio and Video Tools">
             <span class="tab-icon">🎵</span>
-            <span class="tab-label">AV</span>
+            <span class="tab-label">Audio/Video</span>
           </button>
           <button class="nav-tab" id="tab-btn-text" data-tab="text" role="tab" aria-selected="false" aria-label="Text Tools" title="Text Tools">
             <span class="tab-icon">{ }</span>
@@ -903,11 +903,11 @@
         </main>
       </div>
 
-      <!-- TAB 6: AUDIO TOOLBOX -->
+      <!-- TAB 6: AUDIO & VIDEO TOOLS -->
       <div id="tab-content-audio" class="tab-content hidden">
         <section class="hero">
           <h1 class="hero-title">
-            Free <span class="gradient-text">Audio Toolbox</span>
+            Free <span class="gradient-text">Audio &amp; Video Tools</span>
           </h1>
           <p class="hero-subtitle">
             Cut, trim & compress video, extract audio, merge, fade, normalize, denoise, karaoke, ringtones, record mic & screen, split silence, tag files.
@@ -981,6 +981,11 @@
                   <span id="audio-elapsed" class="audio-time"></span>
                   <button id="audio-cancel" class="btn-secondary btn-mini hidden">✕ Cancel run</button>
                 </div>
+              </div>
+
+              <div id="audio-error" class="au-error hidden">
+                <p id="audio-error-text"></p>
+                <button type="button" id="audio-error-copy" class="btn-secondary btn-mini">Copy details</button>
               </div>
             </div>
 
@@ -1060,7 +1065,7 @@
       <div id="tab-content-daily" class="tab-content hidden">
         <section class="hero">
           <h1 class="hero-title">Everyday <span class="gradient-text">Daily Tools</span></h1>
-          <p class="hero-subtitle">Clock with world times, stopwatch, countdown timer, calendar and weather - free, private, on your device.</p>
+          <p class="hero-subtitle">Clock with world times, stopwatch, countdown timer, calendar, weather, calculator and currency - free, private, on your device.</p>
         </section>
 
         <main class="tool-section">

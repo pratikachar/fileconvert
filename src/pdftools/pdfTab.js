@@ -4,6 +4,7 @@
  * downloads when the tab is actually used. Pure logic in pdftools.js.
  */
 import JSZip from 'jszip';
+import { revealPanel } from '../utils/scrollPanel.js';
 
 // pdf-lib (~600 KB) stays out of the main bundle: this module never imports
 // pdftools.js statically. ensurePdfLib() dynamic-imports it on first need
@@ -138,6 +139,7 @@ export function setupPdfTab() {
     state.tool = btn.dataset.tool;
     renderPdfTools();
     renderPdfPanel();
+    revealPanel($('pdf-panel'));
   });
   // Shorter rail labels on phones (rail only - the open panel is untouched).
   if (window.matchMedia) {
