@@ -2220,6 +2220,34 @@ html {
   flex-wrap: wrap;
 }
 
+/* "Remove image" returns to the picker - destructive, so it only turns red on
+   hover/armed and never competes with Undo/Reset for attention. */
+.btn-remove {
+  padding: 7px 12px;
+  margin-left: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass-strong);
+  color: var(--text-secondary);
+  font-family: var(--font-family);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.btn-remove:hover {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.btn-remove.armed {
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.18);
+}
+
 .editor-loading {
   position: absolute;
   inset: 0;

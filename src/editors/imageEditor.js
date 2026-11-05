@@ -92,6 +92,7 @@ export function setupImageEditor() {
   $('editor-undo').addEventListener('click', undo);
   $('editor-redo').addEventListener('click', redo);
   $('editor-reset').addEventListener('click', resetAll);
+  setupRemoveButton();
   // Cross-tab hook: lets shared files (and anything else) open an image here.
   window.__editorLoadFile = loadImageFile;
   // Compact tool names on phones (labels only - tools themselves untouched).
@@ -192,6 +193,64 @@ function resetAll() {
 function updateHistoryButtons() {
   $('editor-undo').disabled = histIndex <= 0;
   $('editor-redo').disabled = histIndex >= history.length - 1;
+}
+
+// ---------- Removing the loaded image ----------
+const REMOVE_ARM_MS = 4000;
+let removeArmTimer = null;
+
+/**
+ * "Remove image" is a two-step button: the first click arms it (and a stray
+ * click is easy to take back), the second one clears the workspace and brings
+ * the picker back so a different file can be opened without reloading.
+ */
+function setupRemoveButton() {
+  const btn = $('editor-remove');
+  if (!btn) return;
+  const disarm = () => {
+    clearTimeout(removeArmTimer);
+    removeArmTimer = null;
+    btn.classList.remove('armed');
+    btn.textContent = '✕ Remove image';
+  };
+  btn.addEventListener('click', () => {
+    if (!btn.classList.contains('armed')) {
+      btn.classList.add('armed');
+      btn.textContent = 'Click again to remove';
+      clearTimeout(removeArmTimer);
+      removeArmTimer = setTimeout(disarm, REMOVE_ARM_MS);
+      return;
+    }
+    disarm();
+    removeImage();
+  });
+  // Any click elsewhere cancels an armed removal (same idea as the audio tab's
+  // delete confirmation), so a half-pressed state never lingers.
+  document.addEventListener('pointerdown', (e) => {
+    if (!removeArmTimer) return;
+    if (e.target.closest && e.target.closest('#editor-remove')) return;
+    disarm();
+  });
+}
+
+function removeImage() {
+  stopActiveCapture();
+  closeTool(); // clears the overlay, tool state and the side panel
+  // Drop every reference to the old pixels: a 2400px photo is tens of MB and
+  // should not stay alive behind a hidden workspace.
+  originalBlob = null;
+  originalImageData = null;
+  toolBaseCanvas = null;
+  history = [];
+  histIndex = -1;
+  // 0 stops openTool from running against a dead canvas if it is somehow hit.
+  editorCanvas.width = 0;
+  editorCanvas.height = 0;
+  updateHistoryButtons();
+  $('editor-workspace').classList.add('hidden');
+  $('editor-empty').classList.remove('hidden');
+  $('editor-file').value = '';
+  toast('Image removed - choose another');
 }
 
 // ---------- Overlay helpers ----------
