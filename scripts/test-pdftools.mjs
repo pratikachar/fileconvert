@@ -8,9 +8,15 @@
 import {
   parsePageSpec, pdfPageCount, mergePdfs, extractPages, rotatePages,
   imagesToPdf, blankPdf, pageRotations, MAX_SPLIT_PAGES,
+  WATERMARK_POSITIONS, WATERMARK_FONTS, WATERMARK_PRESETS, WATERMARK_MAX_TEXT,
+  watermarkDefaults, hexToRgb01, normalizeWatermarkOptions, rotatedBox, anchorForBox,
+  marginBox, watermarkCentres, visibleSize, visibleToPage, pageAngleFor,
+  canEncodeStandardText, pdfPageInfo, applyWatermark,
 } from '../src/pdftools/pdftools.js';
-import { PDF_TOOLS } from '../src/pdftools/pdfTab.js';
-import { PDFDocument } from 'pdf-lib';
+import { PDF_TOOLS, WM_POS, WM_DEFAULTS } from '../src/pdftools/pdfTab.js';
+import {
+  PDFDocument, PDFName, PDFArray, PDFRawStream, decodePDFRawStream,
+} from 'pdf-lib';
 
 let pass = 0;
 const fails = [];
@@ -18,6 +24,59 @@ function check(name, cond, extra = '') {
   if (cond) pass++;
   else fails.push(`${name}${extra ? ' :: ' + extra : ''}`);
 }
+
+/* ---- helpers for reading back what was actually drawn ---- */
+
+const HEXU = (s) => Buffer.from(String(s), 'latin1').toString('hex').toUpperCase();
+
+async function pageContent(pdf, index) {
+  const doc = await PDFDocument.load(pdf);
+  const page = doc.getPage(index);
+  const chunks = [];
+  const walk = (obj) => {
+    if (!obj) return;
+    if (obj instanceof PDFRawStream) {
+      chunks.push(Buffer.from(decodePDFRawStream(obj).decode()).toString('latin1'));
+      return;
+    }
+    if (obj instanceof PDFArray) {
+      obj.asArray().forEach((ref) => walk(doc.context.lookup(ref)));
+    }
+  };
+  walk(page.node.Contents());
+  return chunks.join('\n');
+}
+
+async function pageResourceKeys(pdf, index, kind) {
+  const doc = await PDFDocument.load(pdf);
+  const res = doc.context.lookup(doc.getPage(index).node.Resources());
+  const dict = res && res.get ? res.get(PDFName.of(kind)) : null;
+  return dict && dict.keys ? dict.keys().map((k) => k.asString()) : [];
+}
+
+async function pageAlphas(pdf, index) {
+  const doc = await PDFDocument.load(pdf);
+  const res = doc.context.lookup(doc.getPage(index).node.Resources());
+  const dict = res && res.get ? res.get(PDFName.of('ExtGState')) : null;
+  const out = [];
+  if (!dict || !dict.keys) return out;
+  dict.keys().forEach((k) => {
+    const entry = dict.lookup(k);
+    const ca = entry && entry.get ? entry.get(PDFName.of('ca')) : null;
+    if (ca && typeof ca.asNumber === 'function') out.push(ca.asNumber());
+  });
+  return out;
+}
+
+/** Last text matrix on a page - the watermark is drawn after the page's own content. */
+function lastTm(content) {
+  const hits = content.match(/(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+) Tm/g) || [];
+  if (!hits.length) return null;
+  return hits[hits.length - 1].split(' ').slice(0, 4).map(Number);
+}
+
+const ONE_PX_PNG = Uint8Array.from(Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
 
 // page-spec parser
 {
@@ -106,6 +165,207 @@ const b = await blankPdf(3, 'B');
   check("shorts: every pdf tool has one", missing.length === 0, missing.map((t) => t.id).join(","));
   const longer = PDF_TOOLS.filter((t) => t.short && t.short.length > t.label.length);
   check("shorts: never longer than the label", longer.length === 0, longer.map((t) => t.id).join(","));
+  check('tools: watermark is registered', PDF_TOOLS.some((t) => t.id === 'watermark'));
+}
+
+/* ============================================================
+ * Watermarks
+ * ============================================================ */
+
+{
+  const d = watermarkDefaults();
+  check('wm: default text is WATERMARK', d.text === 'WATERMARK', d.text);
+  check('wm: default is grey, 45 deg, 18%', d.color === '#808080' && d.angle === 45 && d.opacity === 18);
+  check('wm: default is one centred mark, all pages', d.count === 'one' && d.position === 'mc');
+  check('wm: panel defaults mirror the engine', JSON.stringify(WM_DEFAULTS) === JSON.stringify(d));
+  check('wm: panel grid mirrors the engine grid',
+    WM_POS.map((p) => p.id).join(',') === WATERMARK_POSITIONS.map((p) => p.id).join(','));
+  check('wm: grid is 9 cells with centre in the middle',
+    WATERMARK_POSITIONS.length === 9 && WATERMARK_POSITIONS[4].id === 'mc'
+    && WATERMARK_POSITIONS[4].x === 0.5 && WATERMARK_POSITIONS[4].y === 0.5);
+  check('wm: presets match WATERMARK_PRESETS on the chips',
+    WATERMARK_PRESETS.map((p) => p.id).join(',') === 'recommended,confidential,draft,donotcopy'
+    && WATERMARK_PRESETS[0].text === 'WATERMARK');
+  check('wm: fonts are all standard-14', WATERMARK_FONTS.every((f) => f.id.startsWith('Helvetica') || f.id.startsWith('Times') || f.id.startsWith('Courier')));
+}
+
+{
+  check('wm: #808080 parses', (() => { const c = hexToRgb01('#808080'); return Math.abs(c.r - 128 / 255) < 1e-9 && c.r === c.g && c.g === c.b; })());
+  check('wm: shorthand hex parses', (() => { const c = hexToRgb01('#f00'); return c.r === 1 && c.g === 0 && c.b === 0; })());
+  check('wm: no hash still parses', hexToRgb01('ABCDEF') !== null);
+  check('wm: junk is null', hexToRgb01('nope') === null && hexToRgb01('#12345') === null && hexToRgb01('') === null);
+}
+
+{
+  const n = normalizeWatermarkOptions({
+    text: '  Hello   world ', sizePt: 9999, opacity: 0, angle: 999, marginPct: -5,
+    across: 99, down: 0, position: 'zz', fontKey: 'Comic Sans', count: 'wat', color: '#f00', imagePct: 0,
+  });
+  check('wm: out-of-range values are clamped', n.ok && n.opts.sizePt === 400 && n.opts.opacity === 2
+    && n.opts.angle === 180 && n.opts.marginPct === 0 && n.opts.across === 8 && n.opts.down === 1 && n.opts.imagePct === 2,
+  JSON.stringify(n.opts));
+  check('wm: unknown enums fall back to the defaults', n.opts.position === 'mc' && n.opts.fontKey === 'Helvetica-Bold' && n.opts.count === 'one');
+  check('wm: text is trimmed and collapsed', n.opts.text === 'Hello world', n.opts.text);
+  check('wm: valid short hex is kept', n.opts.color === '#f00');
+  check('wm: empty text refused', !normalizeWatermarkOptions({ text: '   ' }).ok);
+  check('wm: over-long text refused', !normalizeWatermarkOptions({ text: 'x'.repeat(WATERMARK_MAX_TEXT + 1) }).ok);
+  check('wm: image mode needs bytes', !normalizeWatermarkOptions({ mode: 'image' }).ok);
+  check('wm: image mode works with bytes', normalizeWatermarkOptions({ mode: 'image' }, { hasImage: true }).ok);
+  check('wm: tile count is clamped to the grid', normalizeWatermarkOptions({ count: 'tile', across: 8, down: 12 }).opts.down === 12);
+}
+
+{
+  const b0 = rotatedBox(100, 20, 0);
+  const b90 = rotatedBox(100, 20, 90);
+  const b45 = rotatedBox(100, 20, 45);
+  check('wm: 0deg box is unchanged', b0.width === 100 && b0.height === 20);
+  check('wm: 90deg swaps the box', Math.abs(b90.width - 20) < 1e-9 && Math.abs(b90.height - 100) < 1e-9);
+  check('wm: 45deg box grows to the diagonal', Math.abs(b45.width - 84.8528137) < 1e-4 && Math.abs(b45.width - b45.height) < 1e-9);
+
+  const angles = [0, 30, 45, 90, -45, 135];
+  const offCentre = angles.filter((angle) => {
+    const w = 300;
+    const localY = 12;
+    const at = anchorForBox(200, 300, w, 44, angle, localY);
+    const t = (angle * Math.PI) / 180;
+    const cx = at.x + Math.cos(t) * (w / 2) - Math.sin(t) * localY;
+    const cy = at.y + Math.sin(t) * (w / 2) + Math.cos(t) * localY;
+    return Math.abs(cx - 200) > 1e-9 || Math.abs(cy - 300) > 1e-9;
+  });
+  check('wm: anchorForBox keeps the mark centred at every angle', offCentre.length === 0, offCentre.join(','));
+}
+
+{
+  const W = 595.28;
+  const H = 841.89;
+  const box = marginBox(W, H, 6);
+  const m = (Math.min(W, H) * 6) / 100;
+  check('wm: margin box is inset on all sides', Math.abs(box.left - m) < 1e-9 && Math.abs(box.bottom - m) < 1e-9
+    && Math.abs(box.width - (W - m * 2)) < 1e-9);
+
+  const centre = watermarkCentres({ pageWidth: W, pageHeight: H, position: 'mc', marginPct: 6 })[0];
+  check('wm: centre position is the page centre', Math.abs(centre.x - W / 2) < 1e-9 && Math.abs(centre.y - H / 2) < 1e-9);
+
+  const outside = [];
+  for (const p of WATERMARK_POSITIONS) {
+    const c = watermarkCentres({ pageWidth: W, pageHeight: H, position: p.id, marginPct: 6 })[0];
+    if (c.x < box.left - 1e-9 || c.x > box.left + box.width + 1e-9
+      || c.y < box.bottom - 1e-9 || c.y > box.bottom + box.height + 1e-9) outside.push(p.id);
+  }
+  check('wm: every 3x3 position sits inside the margin box', outside.length === 0, outside.join(','));
+  check('wm: top-left really is top-left', (() => {
+    const c = watermarkCentres({ pageWidth: W, pageHeight: H, position: 'tl', marginPct: 6 })[0];
+    return Math.abs(c.x - box.left) < 1e-9 && Math.abs(c.y - (box.bottom + box.height)) < 1e-9;
+  })());
+  check('wm: zero margin reaches the page edges', (() => {
+    const c = watermarkCentres({ pageWidth: W, pageHeight: H, position: 'tl', marginPct: 0 })[0];
+    return c.x === 0 && c.y === H;
+  })());
+
+  const tiles = watermarkCentres({ pageWidth: W, pageHeight: H, count: 'tile', across: 3, down: 4, marginPct: 6 });
+  check('wm: tile count is exactly across x down', tiles.length === 12);
+  const xs = [...new Set(tiles.map((t) => +t.x.toFixed(6)))].sort((a, b) => a - b);
+  const ys = [...new Set(tiles.map((t) => +t.y.toFixed(6)))].sort((a, b) => a - b);
+  const evenly = (arr) => arr.slice(1).every((v, i) => Math.abs((v - arr[i]) - (arr[1] - arr[0])) < 1e-6);
+  check('wm: tiled columns are evenly spaced', xs.length === 3 && evenly(xs), JSON.stringify(xs));
+  check('wm: tiled rows are evenly spaced', ys.length === 4 && evenly(ys), JSON.stringify(ys));
+  check('wm: every tiled mark is on the page', tiles.every((t) => t.x > 0 && t.x < W && t.y > 0 && t.y < H));
+  check('wm: 8x12 is the biggest grid the panel allows',
+    watermarkCentres({ pageWidth: W, pageHeight: H, count: 'tile', across: 8, down: 12 }).length === 96);
+}
+
+{
+  check('wm: 90deg page swaps the visible axes', visibleSize({ width: 100, height: 200, rotation: 90 }).width === 200);
+  check('wm: 270deg swaps too', visibleSize({ width: 100, height: 200, rotation: 270 }).height === 100);
+  check('wm: 180deg keeps the axes', visibleSize({ width: 100, height: 200, rotation: 180 }).width === 100);
+
+  const p90 = visibleToPage({ x: 0, y: 0 }, { width: 100, height: 200, rotation: 90 });
+  check('wm: 90deg maps visible bottom-left to page bottom-right', p90.x === 100 && p90.y === 0, JSON.stringify(p90));
+  const p180 = visibleToPage({ x: 25, y: 50 }, { width: 100, height: 200, rotation: 180 });
+  check('wm: 180deg flips both axes', p180.x === 75 && p180.y === 150, JSON.stringify(p180));
+  const p270 = visibleToPage({ x: 0, y: 0 }, { width: 100, height: 200, rotation: 270 });
+  check('wm: 270deg maps visible bottom-left to page top-left', p270.x === 0 && p270.y === 200, JSON.stringify(p270));
+  const square = [0, 90, 180, 270].map((rotation) => visibleToPage({ x: 50, y: 50 }, { width: 100, height: 100, rotation }));
+  check('wm: the page centre is the centre at every rotation', square.every((p) => p.x === 50 && p.y === 50));
+  check('wm: a turned page adds its rotation to the mark angle',
+    pageAngleFor(0, 90) === 90 && pageAngleFor(45, 270) === 315 && pageAngleFor(45, 0) === 45);
+}
+
+{
+  check('wm: WATERMARK is vector-safe', await canEncodeStandardText('WATERMARK'));
+  check('wm: umlauts are vector-safe', await canEncodeStandardText('Grüße'));
+  check('wm: Devanagari needs the image fallback', !(await canEncodeStandardText('नमस्ते')));
+  check('wm: CJK needs the image fallback', !(await canEncodeStandardText('机密')));
+  check('wm: emoji need the image fallback', !(await canEncodeStandardText('😀')));
+}
+
+{
+  const info = await pdfPageInfo(a);
+  check('wm: page info reads count and box', info.pages === 2 && info.width === 400 && info.height === 400 && info.rotation === 0);
+  const turned = await pdfPageInfo(await rotatePages(a, [0], 90));
+  check('wm: page info reports the rotation', turned.rotation === 90);
+}
+
+{
+  const marked = await applyWatermark(a, { ...watermarkDefaults() });
+  check('wm: text mark keeps the page count', (await pdfPageCount(marked)) === 2);
+  const c0 = await pageContent(marked, 0);
+  const c1 = await pageContent(marked, 1);
+  const hex = HEXU('WATERMARK');
+  check('wm: every page gets the text', c0.includes(`<${hex}>`) && c1.includes(`<${hex}>`));
+  check('wm: page text is still there', c0.includes(`<${HEXU('A-1')}>`));
+  check('wm: 18% opacity reaches the graphics state', (await pageAlphas(marked, 0)).some((v) => Math.abs(v - 0.18) < 1e-6));
+  check('wm: grey is the drawing colour', c0.includes('0.5019607843137255 0.5019607843137255 0.5019607843137255 rg'));
+  const tm45 = lastTm(c0);
+  check('wm: 45deg mark has a 45deg text matrix',
+    !!tm45 && Math.abs(tm45[0] - Math.SQRT1_2) < 1e-3 && Math.abs(tm45[1] - Math.SQRT1_2) < 1e-3, JSON.stringify(tm45));
+
+  const rotated = await applyWatermark(a, { ...watermarkDefaults(), angle: 0 });
+  const tm0 = lastTm(await pageContent(rotated, 0));
+  check('wm: 0deg mark has an identity matrix', !!tm0 && Math.abs(tm0[0] - 1) < 1e-6 && Math.abs(tm0[1]) < 1e-6);
+
+  const only = await applyWatermark(a, { ...watermarkDefaults(), pages: [1] });
+  check('wm: only the requested page is marked',
+    !(await pageContent(only, 0)).includes(`<${hex}>`) && (await pageContent(only, 1)).includes(`<${hex}>`));
+
+  const turnedIn = await rotatePages(a, [0], 90);
+  const turnedOut = await applyWatermark(turnedIn, { ...watermarkDefaults() });
+  check('wm: rotations survive stamping', JSON.stringify(await pageRotations(turnedOut)) === '[90,0]');
+  const tmTurned = lastTm(await pageContent(turnedOut, 0));
+  check('wm: a 90deg page is compensated back to 45deg on screen',
+    !!tmTurned && Math.abs(Math.abs(tmTurned[0]) - Math.SQRT1_2) < 1e-3 && Math.abs(Math.abs(tmTurned[1]) - Math.SQRT1_2) < 1e-3,
+    JSON.stringify(tmTurned));
+
+  const tiledOut = await applyWatermark(a, { ...watermarkDefaults(), count: 'tile', across: 2, down: 3, text: 'DRAFT' });
+  const tileContent = await pageContent(tiledOut, 0);
+  const draftHex = `<${HEXU('DRAFT')}>`;
+  check('wm: tile mode draws across x down marks', tileContent.split(draftHex).length - 1 === 6,
+    String(tileContent.split(draftHex).length - 1));
+
+  const imageOut = await applyWatermark(a, {
+    ...watermarkDefaults(), mode: 'image', imageBytes: ONE_PX_PNG, imageMime: 'image/png', imagePct: 40,
+  });
+  const imgContent = await pageContent(imageOut, 0);
+  check('wm: image mode draws an XObject', /\/\S+ Do/.test(imgContent), imgContent.slice(-120));
+  check('wm: image is embedded once per document', (await pageResourceKeys(imageOut, 0, 'XObject')).length === 1);
+  check('wm: image opacity reaches the graphics state', (await pageAlphas(imageOut, 0)).some((v) => Math.abs(v - 0.18) < 1e-6));
+  check('wm: image mark keeps the page count', (await pdfPageCount(imageOut)) === 2);
+}
+
+{
+  const reject = async (opts, label, pattern) => {
+    let threw = null;
+    try { await applyWatermark(a, opts); } catch (err) { threw = String(err && err.message); }
+    check(label, !!threw && (!pattern || pattern.test(threw)), String(threw));
+  };
+  await reject({ ...watermarkDefaults(), text: '   ' }, 'wm: empty text refused at the engine');
+  await reject({ ...watermarkDefaults(), mode: 'image' }, 'wm: image mode without bytes refused');
+  await reject({ ...watermarkDefaults(), pages: [9] }, 'wm: out-of-range pages refused', /No pages/);
+  await reject({ ...watermarkDefaults(), text: 'x'.repeat(200) }, 'wm: over-long text refused', /120/);
+
+  let threw = false;
+  try { await applyWatermark(new Uint8Array(), watermarkDefaults()); } catch { threw = true; }
+  check('wm: empty bytes refused', threw);
 }
 
 console.log(`${pass} checks passed, ${fails.length} failed`);

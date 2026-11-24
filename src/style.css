@@ -2104,6 +2104,116 @@ html {
   color: var(--accent);
 }
 
+.wm-pos-btn.active {
+  border-color: var(--accent-purple, #a855f7);
+  background: rgba(168, 85, 247, 0.16);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* ---- PDF watermark panel ---- */
+
+.wm-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.wm-hex {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.wm-img-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.wm-img-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.wm-img-none {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  border: 1px dashed var(--border-color);
+  font-size: 0.6rem;
+  line-height: 1.1;
+  text-align: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.wm-img-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wm-preset-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wm-preview-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+  margin-top: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+/* The paper: real page aspect ratio, marks placed by the engine's maths. */
+.wm-page {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.wm-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.wm-mark {
+  position: absolute;
+  display: block;
+  white-space: nowrap;
+  transform-origin: center center;
+  pointer-events: none;
+  user-select: none;
+  max-width: none;
+}
+
+@media (max-width: 520px) {
+  .wm-two-col {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .wm-color-row {
   display: flex;
   align-items: center;
