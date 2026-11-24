@@ -190,6 +190,145 @@ export async function runFFmpeg({ args, inputs = [], outputs = [], onProgress = 
 }
 
 /**
+ * Run one FFmpeg command that writes an unknown number of files (the segment
+ * muxer) and read every file whose name starts with `prefix`.
+ *
+ * runFFmpeg() needs its outputs declared up front, which cannot work here: the
+ * muxer decides the count. Listing the wasm FS after the exec is the only
+ * reliable way to collect them, and lets callers prune tiny tail segments.
+ * Existing single-output callers are untouched.
+ */
+export async function runFFmpegSegments({
+  args,
+  inputs = [],
+  prefix,
+  type = 'application/octet-stream',
+  onProgress = () => {},
+  _retried = false,
+}) {
+  const ff = await getFFmpeg((p, m) => onProgress(p * 0.3, m));
+  const prevSink = progressSink;
+  progressSink = (ratio) => onProgress(0.3 + ratio * 0.65);
+
+  const written = inputs.map((i) => i.name);
+  const matches = async () => (await ff.listDir('/'))
+    .filter((f) => !f.isDir && f.name.startsWith(prefix))
+    .map((f) => f.name)
+    .sort();
+
+  try {
+    for (const input of inputs) {
+      const src = input.data !== undefined ? input.data : await fetchFile(input.file);
+      const data = src.slice ? src.slice() : src;
+      await ff.writeFile(input.name, data);
+    }
+
+    const code = await ff.exec(args);
+    if (code !== 0) {
+      throw new Error(`FFmpeg exited with code ${code}. The codec/format combination may not be supported in the browser build.`);
+    }
+
+    const names = await matches();
+    if (!names.length) throw new Error('FFmpeg finished but wrote no output files.');
+    const results = [];
+    for (const name of names) {
+      const data = await ff.readFile(name);
+      results.push({
+        name,
+        bytes: data instanceof Uint8Array ? data : new Uint8Array(data),
+        type,
+      });
+    }
+    onProgress(1, 'Done!');
+    return results;
+  } catch (err) {
+    if (!_retried && noteFFmpegCrash(err)) {
+      progressSink = prevSink;
+      return runFFmpegSegments({ args, inputs, prefix, type, onProgress, _retried: true });
+    }
+    noteFFmpegCrash(err);
+    const tail = ffmpegTail();
+    const detail = String((err && err.message) || err || '').trim();
+    const bits = [];
+    if (tail && !detail.includes(tail)) bits.push(tail);
+    if (detail) bits.push(detail);
+    throw new Error(`FFmpeg command failed: ${bits.join(' / ')}`);
+  } finally {
+    progressSink = prevSink;
+    let leftovers = [];
+    try { leftovers = await matches(); } catch { /* engine already gone */ }
+    for (const n of written.concat(leftovers)) {
+      try { await ff.deleteFile(n); } catch { /* already gone */ }
+    }
+  }
+}
+
+/**
+ * Run several FFmpeg commands against ONE write of the inputs.
+ *
+ * The exact video path needs a separate command per part, but re-uploading the
+ * source into the wasm FS for every part would copy a 100 MB file dozens of
+ * times. This keeps the source in place and only swaps the output name.
+ * `onResult(index, bytes)` is awaited after each part, so callers can add each
+ * part to the results list as it finishes.
+ */
+export async function runFFmpegSeries({
+  jobs = [],
+  inputs = [],
+  onProgress = () => {},
+  onResult = async () => {},
+  isCancelled = () => false,
+}) {
+  const ff = await getFFmpeg((p, m) => onProgress(p * 0.3, m));
+  const prevSink = progressSink;
+  const written = inputs.map((i) => i.name);
+  let produced = 0;
+
+  try {
+    for (const input of inputs) {
+      const src = input.data !== undefined ? input.data : await fetchFile(input.file);
+      const data = src.slice ? src.slice() : src;
+      await ff.writeFile(input.name, data);
+    }
+
+    for (let i = 0; i < jobs.length; i++) {
+      if (isCancelled()) return { cancelled: true, produced };
+      const job = jobs[i];
+      progressSink = (ratio) => onProgress(0.3 + ((i + ratio) / jobs.length) * 0.65);
+      const code = await ff.exec(job.args);
+      if (code !== 0) {
+        throw new Error(`FFmpeg exited with code ${code} while writing part ${i + 1} of ${jobs.length}.`);
+      }
+      const data = await ff.readFile(job.outName);
+      await onResult(i, data instanceof Uint8Array ? data : new Uint8Array(data));
+      produced++;
+      try { await ff.deleteFile(job.outName); } catch { /* already gone */ }
+      onProgress(0.3 + (0.65 * (i + 1)) / jobs.length, `Part ${i + 1} of ${jobs.length}`);
+    }
+    onProgress(1, 'Done!');
+    return { cancelled: false, produced };
+  } catch (err) {
+    // A cancelled run killed the worker on purpose - stay quiet and keep the
+    // parts that were already handed to the results list.
+    if (isCancelled()) return { cancelled: true, produced };
+    // No transparent retry here: earlier parts are already on screen, and
+    // replaying the series would add them twice.
+    noteFFmpegCrash(err);
+    const tail = ffmpegTail();
+    const detail = String((err && err.message) || err || '').trim();
+    const bits = [];
+    if (tail && !detail.includes(tail)) bits.push(tail);
+    if (detail) bits.push(detail);
+    throw new Error(`FFmpeg command failed: ${bits.join(' / ')}`);
+  } finally {
+    progressSink = prevSink;
+    for (const n of written) {
+      try { await ff.deleteFile(n); } catch { /* already gone */ }
+    }
+  }
+}
+
+/**
  * Get FFmpeg output arguments for a given output extension
  */
 function getFFmpegArgs(inputExt, outputExt) {

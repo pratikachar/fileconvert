@@ -912,7 +912,7 @@
             Free <span class="gradient-text">Audio &amp; Video Tools</span>
           </h1>
           <p class="hero-subtitle">
-            Cut, trim & compress video, extract audio, merge, fade, normalize, denoise, karaoke, ringtones, record mic & screen, split silence, tag files.
+            Cut, trim & compress video, split any file into equal-length parts, extract audio, merge, fade, normalize, denoise, karaoke, ringtones, record mic & screen, split silence, tag files.
             Everything runs on your device - nothing is uploaded.
           </p>
         </section>
@@ -994,7 +994,14 @@
             <div class="controls-card">
               <div class="audio-head-row">
                 <h3 class="controls-title">📦 Results</h3>
-                <button id="audio-clear-results" class="btn-secondary btn-mini">Clear all</button>
+                <div class="audio-results-actions">
+                  <label class="audio-select-all" for="audio-select-all">
+                    <input type="checkbox" id="audio-select-all" disabled /> Select all
+                  </label>
+                  <button id="audio-zip" class="btn-secondary btn-mini" type="button" disabled
+                    title="Tick the files you want, then download them as one ZIP">⬇ ZIP selected</button>
+                  <button id="audio-clear-results" class="btn-secondary btn-mini">Clear all</button>
+                </div>
               </div>
               <div id="audio-results" class="audio-results"></div>
               <p class="field-hint">Every tool adds a new file here - your original is never modified.</p>

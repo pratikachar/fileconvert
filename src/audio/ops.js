@@ -555,6 +555,102 @@ export function buildReplaceAudio({ videoIn, audioIn, outName, containerExt = "m
 /** Above this many frames, Extract Frames refuses and asks for a wider step. */
 export const MAX_EXTRACT_FRAMES = 12;
 
+/* ---------------- fixed-length chunk splitting ---------------- */
+
+export const CHUNK_MIN_SECONDS = 0.5;
+export const CHUNK_MAX_SECONDS = 6 * 3600;
+export const CHUNK_MAX_FILES = 400;
+/** Containers whose audio can be cut with a pure stream copy (no re-encode). */
+export const CHUNK_COPY_AUDIO = ['mp3', 'm4a', 'aac', 'wav', 'flac', 'aiff'];
+
+/**
+ * The cut length actually used, chosen so every part is STRICTLY shorter than
+ * the user's limit. The margin is 0.5% of the limit, clamped to 50-500 ms, so
+ * "20 seconds" cuts at 19.9s: a platform that rejects anything >= 20s never
+ * sees a 20.000s file, and the lost tail stays negligible. Because the split is
+ * then spread evenly, there is no 0.1s leftover part either.
+ */
+export function safeChunkSeconds(limitSeconds) {
+  const n = Number(limitSeconds);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const margin = Math.min(0.5, Math.max(0.05, n * 0.005));
+  return Math.max(0.1, n - margin);
+}
+
+/**
+ * Work out how many equal parts to write and how long each one is.
+ * `count = ceil(duration / safe)`, `seconds = duration / count`, so
+ * `seconds <= safe < limit` for every part - never a part at or over the limit.
+ */
+export function chunkPlan({ duration, limitSeconds, maxFiles = CHUNK_MAX_FILES, allowUnknownDuration = false } = {}) {
+  const limit = Number(limitSeconds);
+  if (!Number.isFinite(limit) || limit <= 0) return { ok: false, error: 'Enter a chunk length above zero.' };
+  if (limit < CHUNK_MIN_SECONDS) return { ok: false, error: `Chunk length must be at least ${CHUNK_MIN_SECONDS} seconds.` };
+  if (limit > CHUNK_MAX_SECONDS) return { ok: false, error: 'Chunk length is too large (6 hours max).' };
+  const safe = safeChunkSeconds(limit);
+  const dur = Number(duration);
+  if (!Number.isFinite(dur) || dur <= 0) {
+    if (!allowUnknownDuration) return { ok: false, error: 'Duration unknown - reload the file and try again.' };
+    return { ok: true, unknown: true, count: null, seconds: safe, safe, limit };
+  }
+  const count = Math.max(1, Math.ceil(dur / safe));
+  if (count > maxFiles) {
+    return { ok: false, error: `That would create ${count} files. Use a longer chunk length (${maxFiles} max).` };
+  }
+  return { ok: true, unknown: false, count, seconds: dur / count, safe, limit, duration: dur };
+}
+
+/**
+ * How a chunk run is produced:
+ *  - audio-copy   same container, frame-accurate segment copy (instant, bit-exact)
+ *  - audio-encode format change, segment muxer with the target codec
+ *  - video-copy   fast/keyframe copy (instant, but cuts can overshoot)
+ *  - video-exact  re-encode every part (true length, slower)
+ */
+export function chunkStrategy({ isVideo = false, sourceExt = '', outExt = '', fast = false } = {}) {
+  if (isVideo) return fast && canLosslessVideoTrim(sourceExt, outExt) ? 'video-copy' : 'video-exact';
+  if (String(outExt) === String(sourceExt) && CHUNK_COPY_AUDIO.includes(outExt)) return 'audio-copy';
+  return 'audio-encode';
+}
+
+/** `song-part-01.mp3` - zero-padded to the part count so files sort in order. */
+export function chunkName(base, index, count, ext) {
+  const width = Math.max(2, String(Math.max(1, Number(count) || 1)).length);
+  return `${base}-part-${String(Number(index) + 1).padStart(width, '0')}.${ext}`;
+}
+
+/**
+ * One-pass split with the segment muxer (audio, and the fast video mode).
+ * `seconds` is the already-safe cut length; `%03d` in `outPattern` is expanded
+ * by FFmpeg, so the number of files is only known after the run.
+ */
+export function buildChunkSegments({ inName, outPattern, seconds, outExt = 'mp3', bitrate = 192, copy = false }) {
+  const args = ['-i', inName, '-f', 'segment', '-segment_time', r3(seconds), '-reset_timestamps', '1'];
+  if (copy) args.push('-c', 'copy');
+  else args.push(...codecArgs(outExt, bitrate));
+  args.push('-y', outPattern);
+  return args;
+}
+
+/**
+ * One exactly-timed video part. Re-encoding is what makes the start frame
+ * accurate; `-t` caps the part so it can never reach the user's limit.
+ */
+export function buildVideoChunk({ inName, outName, start = 0, duration = null, outExt = 'mp4', crf = 23, preset = 'ultrafast' }) {
+  const args = ['-ss', r3(Math.max(0, Number(start) || 0)), '-i', inName];
+  if (duration != null && Number.isFinite(Number(duration))) {
+    args.push('-t', r3(Math.max(0.05, Number(duration))));
+  }
+  // WebM cannot hold H.264/AAC, so exact chunks into WebM use VP8/Vorbis;
+  // every other offered container accepts H.264/AAC (verified with the core).
+  const webm = String(outExt).toLowerCase() === 'webm';
+  args.push('-map', '0:v:0?', '-map', '0:a:0?');
+  if (webm) args.push('-c:v', 'libvpx', '-b:v', '1M', '-deadline', 'realtime', '-cpu-used', '8', '-c:a', 'libvorbis', '-b:a', '128k');
+  else args.push('-c:v', 'libx264', '-preset', preset, '-crf', String(crf), '-c:a', 'aac', '-b:a', '128k');
+  args.push('-avoid_negative_ts', 'make_zero', '-y', outName);
+  return args;
+}
+
 export const TOOLS = [
   { id: 'cut', label: '✂️ Cut', short: '✂️ Cut' },
   { id: 'vtrim', label: '🎞 Trim Video', short: '🎞 Trim', needsVideo: true },
@@ -572,6 +668,7 @@ export const TOOLS = [
   { id: 'record', label: '🎙 Record (mic)', short: '🎙 Rec' },
   { id: 'screen', label: '🎥 Screen Record', short: '🎥 Screen' },
   { id: 'split', label: '✂️ Split on silence', short: '✂️ Split' },
+  { id: 'chunk', label: '🧩 Split into chunks', short: '🧩 Chunks' },
   { id: 'vmute', label: '🔇 Mute audio', short: '🔇 Mute' },
   { id: 'vrotate', label: '🔄 Rotate/Flip', short: '🔄 Rotate' },
   { id: 'vspeed', label: '⚡ Change speed', short: '⚡ V-Speed' },

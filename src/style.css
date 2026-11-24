@@ -2813,6 +2813,42 @@ html {
   flex-wrap: wrap;
 }
 
+.audio-results-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.audio-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.audio-select-all input,
+.audio-result .ar-check {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--accent-purple, #a855f7);
+  cursor: pointer;
+}
+
+/* Free-form chunk length: number box + unit, no preset buttons. */
+.chunk-len-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .audio-file-list,
 .audio-results {
   display: flex;

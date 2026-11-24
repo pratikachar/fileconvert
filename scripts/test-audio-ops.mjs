@@ -13,6 +13,8 @@ import {
   buildVideoTrim, canLosslessVideoTrim, VIDEO_OUT_FORMATS, TOOLS,
   buildExtractFrame, buildGifToVideo, buildSlideshow, buildReplaceAudio,
   isImageExt, IMAGE_EXTS, SLIDESHOW_WIDTHS, MAX_EXTRACT_FRAMES,
+  safeChunkSeconds, chunkPlan, chunkStrategy, chunkName, buildChunkSegments,
+  buildVideoChunk, CHUNK_MIN_SECONDS, CHUNK_MAX_FILES, CHUNK_COPY_AUDIO,
 } from '../src/audio/ops.js';
 import { isWasmTrapError } from '../src/converters/media.js';
 import { computePeaks, computePeaksFromPcm, frameSnap, formatTime, timeAtX, xAtTime } from '../src/audio/waveform.js';
@@ -361,6 +363,67 @@ check('flac codec', has(codecArgs('flac'), '-c:a', 'flac'));
   check("shorts: never longer than the label", longer.length === 0, longer.map((t) => t.id).join(","));
   const ids = new Set(TOOLS.map((t) => t.id));
   check("shorts: ids still unique", ids.size === TOOLS.length);
+}
+
+// --- fixed-length chunk splitting ---
+{
+  const tChunk = TOOLS.find((t) => t.id === 'chunk');
+  check('chunk: tool registered without input restrictions', !!tChunk && !tChunk.needsVideo && !tChunk.needsFiles);
+
+  // Strictly under the limit - the whole point of the feature.
+  check('chunk: 20s limit cuts at 19.9s', Math.abs(safeChunkSeconds(20) - 19.9) < 1e-9, String(safeChunkSeconds(20)));
+  check('chunk: safe cut is always under the limit', [0.5, 1, 5, 9.99, 20, 30, 60, 600].every((n) => safeChunkSeconds(n) < n));
+  check('chunk: safe cut keeps most of the limit', safeChunkSeconds(20) > 19.5 && safeChunkSeconds(600) > 599);
+  check('chunk: bad limits rejected', safeChunkSeconds(0) === null && safeChunkSeconds('x') === null && safeChunkSeconds(-4) === null);
+
+  const p300 = chunkPlan({ duration: 300, limitSeconds: 30 });
+  check('chunk: 5min @30s -> 11 equal parts', p300.ok && p300.count === 11, JSON.stringify(p300));
+  check('chunk: every 5min/30s part is under 30s', p300.seconds * p300.count <= 300 + 1e-9 && p300.seconds < 30);
+  check('chunk: parts cover the whole file', Math.abs(p300.seconds * p300.count - 300) < 1e-9);
+
+  const p20 = chunkPlan({ duration: 300, limitSeconds: 20 });
+  check('chunk: 5min @20s -> 16 parts, all under 20s', p20.ok && p20.count === 16 && p20.seconds < 20, JSON.stringify(p20));
+  check('chunk: never exactly the limit', [1, 10, 20, 30, 60].every((lim) => {
+    const p = chunkPlan({ duration: lim * 5, limitSeconds: lim });
+    return p.ok && p.seconds < lim;
+  }));
+
+  const shortFile = chunkPlan({ duration: 12, limitSeconds: 30 });
+  check('chunk: shorter than the limit is one part', shortFile.ok && shortFile.count === 1 && shortFile.seconds === 12);
+
+  check('chunk: missing duration refused for exact video', !chunkPlan({ duration: null, limitSeconds: 30 }).ok);
+  const unknown = chunkPlan({ duration: null, limitSeconds: 30, allowUnknownDuration: true });
+  check('chunk: unknown duration allowed for segment mode', unknown.ok && unknown.unknown === true && unknown.seconds < 30);
+
+  check('chunk: zero/negative limit refused', !chunkPlan({ duration: 60, limitSeconds: 0 }).ok && !chunkPlan({ duration: 60, limitSeconds: -2 }).ok);
+  check('chunk: sub-minimum limit refused', !chunkPlan({ duration: 60, limitSeconds: CHUNK_MIN_SECONDS / 2 }).ok);
+  check('chunk: runaway file count refused', !chunkPlan({ duration: 60 * 60 * 6, limitSeconds: 1 }).ok);
+  check('chunk: file cap comes from the constant', CHUNK_MAX_FILES >= 50);
+
+  check('chunk: zero padded names sort', chunkName('song', 0, 10, 'mp3') === 'song-part-01.mp3' && chunkName('song', 9, 10, 'mp3') === 'song-part-10.mp3');
+  check('chunk: three digits at 100+', chunkName('x', 0, 120, 'm4a') === 'x-part-001.m4a' && chunkName('x', 119, 120, 'm4a') === 'x-part-120.m4a');
+
+  check('chunk: same-format audio is a copy', CHUNK_COPY_AUDIO.includes('mp3') && chunkStrategy({ sourceExt: 'mp3', outExt: 'mp3' }) === 'audio-copy');
+  check('chunk: wav/flac copies too', chunkStrategy({ sourceExt: 'wav', outExt: 'wav' }) === 'audio-copy' && chunkStrategy({ sourceExt: 'flac', outExt: 'flac' }) === 'audio-copy');
+  check('chunk: format change re-encodes', chunkStrategy({ sourceExt: 'wav', outExt: 'mp3' }) === 'audio-encode');
+  check('chunk: ogg does not claim copy', chunkStrategy({ sourceExt: 'ogg', outExt: 'ogg' }) === 'audio-encode');
+  check('chunk: video exact by default', chunkStrategy({ isVideo: true, sourceExt: 'mp4', outExt: 'mp4' }) === 'video-exact');
+  check('chunk: video fast copies when container allows', chunkStrategy({ isVideo: true, sourceExt: 'mp4', outExt: 'mp4', fast: true }) === 'video-copy');
+  check('chunk: video fast falls back when copy impossible', chunkStrategy({ isVideo: true, sourceExt: 'mp4', outExt: 'webm', fast: true }) === 'video-exact');
+
+  const segCopy = buildChunkSegments({ inName: 'in.mp3', outPattern: 'seg_%03d.mp3', seconds: 19.9, outExt: 'mp3', copy: true });
+  check('chunk: segment args use the muxer', has(segCopy, '-f', 'segment', '-segment_time', '19.9', '-reset_timestamps', '1'));
+  check('chunk: copy mode has no encoder', segCopy.includes('-c') && segCopy.includes('copy') && !segCopy.includes('libmp3lame'));
+  check('chunk: output pattern kept last', segCopy[segCopy.length - 1] === 'seg_%03d.mp3');
+  const segEnc = buildChunkSegments({ inName: 'in.wav', outPattern: 'seg_%03d.mp3', seconds: 10, outExt: 'mp3', bitrate: 256 });
+  check('chunk: encode mode uses the target codec', has(segEnc, '-c:a', 'libmp3lame', '-b:a', '256k'));
+
+  const exc = buildVideoChunk({ inName: 'in.mp4', outName: 'out.mp4', start: 40, duration: 19.9 });
+  check('chunk: exact video seeks then re-encodes', has(exc, '-ss', '40', '-i', 'in.mp4', '-t', '19.9', '-c:v', 'libx264'));
+  check('chunk: exact video keeps optional audio', has(exc, '-map', '0:v:0?', '-map', '0:a:0?'));
+  check('chunk: exact video is a hard cap', exc[exc.indexOf('-t') + 1] === '19.9');
+  const webmChunk = buildVideoChunk({ inName: 'in.mp4', outName: 'out.webm', start: 0, duration: 10, outExt: 'webm' });
+  check('chunk: webm parts use vp8/vorbis', has(webmChunk, '-c:v', 'libvpx', '-c:a', 'libvorbis') && !webmChunk.includes('libx264'));
 }
 
 console.log(`${pass} checks passed, ${fails.length} failed`);

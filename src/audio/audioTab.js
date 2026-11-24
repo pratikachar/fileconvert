@@ -3,7 +3,8 @@
  * Everything runs client-side on the shared FFmpeg singleton.
  */
 
-import { runFFmpeg, fsName, getFFmpeg, resetFFmpegEngine, isFFmpegLoaded, isFFmpegLoading, getRecentFFmpegLogs as getFFmpegLogs, clearFFmpegLogs } from '../converters/media.js';
+import { runFFmpeg, runFFmpegSegments, runFFmpegSeries, fsName, getFFmpeg, resetFFmpegEngine, isFFmpegLoaded, isFFmpegLoading, getRecentFFmpegLogs as getFFmpegLogs, clearFFmpegLogs } from '../converters/media.js';
+import JSZip from 'jszip';
 import * as ops from './ops.js';
 import { revealPanel } from '../utils/scrollPanel.js';
 import {
@@ -31,6 +32,8 @@ const state = {
   tool: 'cut',
   sel: { start: 0, end: 0 },
   results: [],
+  /** Result ids ticked for the ZIP button (survives re-renders). */
+  selected: new Set(),
   drag: null,
   confirm: { kind: null, id: null },
   confirmTimer: null,
@@ -38,6 +41,10 @@ const state = {
   audioOutExt: 'mp3',
   videoOutExt: 'mp4',
   vtrimMode: 'video',
+  /** Chunk splitter: free-form length (no presets), remembered between visits. */
+  chunkLen: 30,
+  chunkUnit: 's',
+  chunkMode: 'exact',
 };
 
 let canvas = null;
@@ -106,10 +113,15 @@ function vtrimVideoOut() {
   return state.tool === 'vtrim' && state.vtrimMode === 'video';
 }
 
+/** Chunking a real video uses the shared container select (like Trim Video). */
+function chunkVideoOut() {
+  return state.tool === 'chunk' && hasVideoTrack(activeFile());
+}
+
 /** Tools that always write a video container (so the shared output select
  *  offers containers and the bitrate group is hidden). */
 function isVideoToolOut() {
-  return vtrimVideoOut() || ['vmute', 'vrotate', 'vspeed', 'vcompress', 'vgif', 'vslideshow', 'vreplace', 'vframes'].includes(state.tool);
+  return vtrimVideoOut() || chunkVideoOut() || ['vmute', 'vrotate', 'vspeed', 'vcompress', 'vgif', 'vslideshow', 'vreplace', 'vframes'].includes(state.tool);
 }
 
 /**
@@ -268,7 +280,7 @@ export function setupAudioTab() {
   // Output format / bitrate
   const sel = $('audio-out-ext');
   sel.addEventListener('change', () => {
-    if (vtrimVideoOut()) state.videoOutExt = sel.value;
+    if (isVideoToolOut()) state.videoOutExt = sel.value;
     else state.audioOutExt = sel.value;
     updateBitrateVisibility();
     renderTools();
@@ -297,6 +309,13 @@ export function setupAudioTab() {
   $('audio-run').addEventListener('click', runTool);
   $('audio-clear-results').addEventListener('click', clearResults);
   $('audio-cancel').addEventListener('click', cancelAudioRun);
+  // Results: tick files, then download the ticked set as one ZIP (or all).
+  $('audio-select-all').addEventListener('change', () => {
+    if ($('audio-select-all').checked) state.results.forEach((r) => state.selected.add(r.id));
+    else state.selected.clear();
+    renderResults();
+  });
+  $('audio-zip').addEventListener('click', zipSelected);
 
   // Warm up the engine on first tab open so Process/Preview rarely pay the
   // ~31 MB first-load cost at click time. One attempt only, silent unless it fails.
@@ -338,6 +357,13 @@ export function setupAudioTab() {
   window.__audioAddFiles = addFiles;
   // Read-only result accessor so automated checks can inspect real output bytes.
   window.__audioResults = () => state.results.map((r) => ({ name: r.name, mime: r.mime, size: r.size, url: r.url }));
+  // Build (but do not download) the selected ZIP so checks can read the entries.
+  window.__audioZip = (ids) => {
+    const picked = Array.isArray(ids)
+      ? state.results.filter((r) => ids.includes(r.id))
+      : state.results.filter((r) => state.selected.has(r.id));
+    return buildZipBlob(picked);
+  };
 
   // Render the disabled tool rail + empty panel before any file is loaded.
   renderTools();
@@ -408,6 +434,51 @@ function probeVideoTrack(file) {
  *  denoise two-pass run map a missing video stream and fail outright. */
 function hasVideoTrack(item) {
   return !!item && !!item.isVideo && item.hasVideo !== false;
+}
+
+/** Real duration of a produced part, read from its own metadata (null if unreadable). */
+function probeBlobDuration(blob, isVideo) {
+  return new Promise((resolve) => {
+    let url = null;
+    let done = false;
+    let timer = null;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { if (url) URL.revokeObjectURL(url); } catch { /* ignore */ }
+      resolve(val);
+    };
+    timer = setTimeout(() => finish(null), 6000);
+    try {
+      url = URL.createObjectURL(blob);
+      const el = document.createElement(isVideo ? 'video' : 'audio');
+      el.preload = 'metadata';
+      el.muted = true;
+      el.onloadedmetadata = () => finish(Number.isFinite(el.duration) ? el.duration : null);
+      el.onerror = () => finish(null);
+      el.src = url;
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+/**
+ * Measure produced parts in small batches - 100+ media elements at once would
+ * stall the tab. Used to prune the muxer's 0.02s tail and to prove every part
+ * really is under the user's limit.
+ */
+async function measureDurations(list, isVideo, onTick = () => {}) {
+  const out = new Array(list.length).fill(null);
+  const BATCH = 8;
+  for (let i = 0; i < list.length; i += BATCH) {
+    const slice = list.slice(i, i + BATCH);
+    const vals = await Promise.all(slice.map((bytes) => probeBlobDuration(new Blob([bytes]), isVideo)));
+    vals.forEach((v, j) => { out[i + j] = v; });
+    onTick(Math.min(i + BATCH, list.length), list.length);
+  }
+  return out;
 }
 
 // ============================================
@@ -555,6 +626,7 @@ function removeResult(id) {
   if (idx === -1) return;
   const [gone] = state.results.splice(idx, 1);
   if (gone) URL.revokeObjectURL(gone.url);
+  state.selected.delete(id);
   if (resultPlayer && resultPlayer.dataset.id === String(id)) {
     resultPlayer.pause();
     resultPlayer.removeAttribute('src');
@@ -960,6 +1032,52 @@ function renderPanel() {
         toast('Lossless needs the same input and output format - picked a re-encode instead.');
       });
     }
+    return;
+  }
+
+  if (t === 'chunk') {
+    const src = item ? item.ext : '';
+    const video = hasVideoTrack(item);
+    const copyOk = video && ops.canLosslessVideoTrim(src, fmtOutExt());
+    if (!video || !copyOk) state.chunkMode = 'exact';
+    const mode = video ? state.chunkMode : 'exact';
+    const unit = state.chunkUnit === 'min' ? 'min' : 's';
+    const value = Number(state.chunkLen) > 0 ? state.chunkLen : 30;
+    el.innerHTML = `
+      <label class="control-label" for="ao-ch-len">Maximum length of each part</label>
+      <div class="chunk-len-row">
+        <input id="ao-ch-len" class="form-input" type="number" inputmode="decimal"
+          min="${ops.CHUNK_MIN_SECONDS}" step="any" value="${value}" />
+        <select id="ao-ch-unit" class="form-select">
+          <option value="s"${unit === 's' ? ' selected' : ''}>seconds</option>
+          <option value="min"${unit === 'min' ? ' selected' : ''}>minutes</option>
+        </select>
+      </div>
+      ${video ? `
+        <label class="control-label">Cut mode</label>
+        <div class="seg-row">
+          <button type="button" class="seg-btn${mode === 'exact' ? ' active' : ''}" data-chmode="exact">🎯 Exact length</button>
+          <button type="button" class="seg-btn${mode === 'fast' ? ' active' : ''}" data-chmode="fast"${copyOk ? '' : ` disabled title="Fast copy needs the source container (or MKV) - ${src.toUpperCase()} cannot stream-copy into ${fmtOutExt().toUpperCase()}."`}>⚡ Fast (keyframes)</button>
+        </div>` : ''}
+      <p class="field-hint" id="ao-ch-est"></p>
+      <p class="field-hint" id="ao-ch-why"></p>`;
+
+    const syncState = () => {
+      const v = parseFloat($('ao-ch-len').value);
+      if (Number.isFinite(v) && v > 0) state.chunkLen = v;
+      state.chunkUnit = $('ao-ch-unit').value === 'min' ? 'min' : 's';
+    };
+    $('ao-ch-len').addEventListener('input', () => { syncState(); chunkEstimate(); });
+    $('ao-ch-unit').addEventListener('change', () => { syncState(); chunkEstimate(); });
+    el.querySelectorAll('[data-chmode]').forEach((b) => {
+      b.addEventListener('click', () => {
+        if (b.disabled) return;
+        state.chunkMode = b.dataset.chmode;
+        syncState();
+        renderPanel();
+      });
+    });
+    chunkEstimate();
     return;
   }
 
@@ -1590,6 +1708,54 @@ function num(id, fallback = 0) {
   return Number.isNaN(v) ? fallback : v;
 }
 
+function chunkLimitSeconds() {
+  const len = parseFloat((($('ao-ch-len') || {}).value));
+  const factor = (($('ao-ch-unit') || {}).value) === 'min' ? 60 : 1;
+  return Number.isFinite(len) ? len * factor : NaN;
+}
+
+/** Panel explanation of what will actually happen with the current settings. */
+function chunkWhy(strategy, item, video) {
+  const out = fmtOutExt().toUpperCase();
+  if (strategy === 'audio-copy') {
+    return `Lossless stream copy (${out}) - instant and bit-exact. Cuts follow the codec's frame grid (±26 ms).`;
+  }
+  if (strategy === 'audio-encode') return `Format change to ${out} - every part is re-encoded.`;
+  if (strategy === 'video-copy') {
+    return 'Fast: copies the streams (instant, no quality loss) but cuts snap to keyframes, so a part can be LONGER than your limit. Use Exact for hard platform caps.';
+  }
+  if (video && item && !ops.canLosslessVideoTrim(item.ext, fmtOutExt())) {
+    return `Exact (re-encode): this ${item.ext.toUpperCase()} picture track cannot be stream-copied into ${out}, so Fast is unavailable.`;
+  }
+  return 'Exact: re-encodes each part so its length is true to the millisecond. A long HD video can take minutes - keep this tab open.';
+}
+
+/** Live "how many parts" line for the chunk panel (no presets, any value). */
+function chunkEstimate() {
+  const est = $('ao-ch-est');
+  if (!est) return;
+  const item = activeFile();
+  const limit = chunkLimitSeconds();
+  const video = hasVideoTrack(item);
+  const fast = video && state.chunkMode === 'fast' && !!item && ops.canLosslessVideoTrim(item.ext, fmtOutExt());
+  const strategy = ops.chunkStrategy({ isVideo: video, sourceExt: item ? item.ext : '', outExt: fmtOutExt(), fast });
+  const plan = ops.chunkPlan({
+    duration: item && item.duration,
+    limitSeconds: limit,
+    allowUnknownDuration: strategy !== 'video-exact',
+  });
+  est.classList.toggle('tt-err', !plan.ok);
+  if (!plan.ok) {
+    est.textContent = plan.error;
+  } else if (plan.unknown) {
+    est.textContent = `Splitting every ${plan.safe.toFixed(1)}s or less - the file length is unknown, so the part count follows once it runs.`;
+  } else {
+    est.textContent = `${plan.count} part${plan.count === 1 ? '' : 's'} · about ${plan.seconds.toFixed(2)}s each · every part stays under your ${plan.limit}s limit.`;
+  }
+  const why = $('ao-ch-why');
+  if (why) why.textContent = chunkWhy(strategy, item, video);
+}
+
 function readPanel() {
   const t = state.tool;
   if (t === 'cut') {
@@ -1599,6 +1765,13 @@ function readPanel() {
       fadeIn: num('ao-fadein', 0),
       fadeOut: num('ao-fadeout', 0),
       lossless: !!(($('ao-lossless') || {}).checked),
+    };
+  }
+  if (t === 'chunk') {
+    const raw = num('ao-ch-len', 30);
+    return {
+      chunkLen: raw * ((($('ao-ch-unit') || {}).value) === 'min' ? 60 : 1),
+      fastMode: state.chunkMode === 'fast',
     };
   }
   if (t === 'vtrim') {
@@ -1922,6 +2095,104 @@ async function runTool() {
       } else if (state.tool === 'vcompress') {
         downloadName = base + '-compressed.' + outExt;
         args = ops.buildVideoCompress({ inName, outName, target: o.target, crf: o.crf });
+      } else if (state.tool === 'chunk') {
+        const isVid = hasVideoTrack(item);
+        const strategy = ops.chunkStrategy({ isVideo: isVid, sourceExt: item.ext, outExt, fast: !!o.fastMode });
+        const plan = ops.chunkPlan({
+          duration: item.duration,
+          limitSeconds: o.chunkLen,
+          allowUnknownDuration: strategy !== 'video-exact',
+        });
+        if (!plan.ok) { bailRun(plan.error); return; }
+
+        const parts = [];
+        const addPart = (i, bytes, count, seconds) => {
+          const name = ops.chunkName(base, i, count, outExt);
+          addResult(name, bytes, mime, { batch: base });
+          parts.push({ name, bytes, seconds });
+        };
+
+        if (strategy === 'video-exact') {
+          // True-length parts: one re-encoded command per part, all against a
+          // single write of the source (a 10-min HD file is not copied N times).
+          const jobs = [];
+          for (let i = 0; i < plan.count; i++) {
+            const start = i * plan.seconds;
+            const dur = Math.min(plan.seconds, plan.duration - start);
+            const outFile = fsName(`part.${outExt}`);
+            jobs.push({ args: ops.buildVideoChunk({ inName, outName: outFile, start, duration: dur, outExt }), outName: outFile });
+          }
+          text.textContent = `Cutting ${plan.count} part${plan.count === 1 ? '' : 's'}…`;
+          const outcome = await runFFmpegSeries({
+            jobs,
+            inputs: [{ name: inName, file: item.file }],
+            isCancelled: () => liveRunId !== myRun,
+            onProgress: (frac, msg) => {
+              bar.style.width = `${Math.max(0, Math.min(100, Math.round(frac * 100)))}%`;
+              if (msg) text.textContent = msg;
+            },
+            onResult: (i, bytes) => addPart(i, bytes, plan.count, null),
+          });
+          if (outcome.cancelled) return;
+          const durations = await measureDurations(parts.map((p) => p.bytes), true, (done, of) => {
+            text.textContent = `Checking part lengths… ${done}/${of}`;
+          });
+          durations.forEach((d, i) => { if (parts[i]) parts[i].seconds = d; });
+        } else {
+          const copy = strategy === 'audio-copy' || strategy === 'video-copy';
+          const segSeconds = plan.unknown ? plan.safe : plan.seconds;
+          const segPrefix = fsName('seg_');
+          const segs = await runFFmpegSegments({
+            args: ops.buildChunkSegments({
+              inName,
+              outPattern: `${segPrefix}%03d.${outExt}`,
+              seconds: segSeconds,
+              outExt,
+              bitrate: br,
+              copy,
+            }),
+            inputs: [{ name: inName, file: item.file }],
+            prefix: segPrefix,
+            type: mime,
+            onProgress: (frac, msg) => {
+              bar.style.width = `${Math.max(0, Math.min(100, Math.round(frac * 100)))}%`;
+              if (msg) text.textContent = msg;
+            },
+          });
+          // The segment muxer can emit a 0.02s tail on MP3/M4A. Measure first:
+          // that lets us drop the sliver and number the kept parts without gaps.
+          const durations = await measureDurations(segs.map((s) => s.bytes), isVid, (done, of) => {
+            text.textContent = `Checking part lengths… ${done}/${of}`;
+          });
+          const kept = [];
+          segs.forEach((s, i) => {
+            const d = durations[i];
+            const sliver = d != null ? d < 0.1 : s.bytes.length < 2048;
+            if (!sliver) kept.push({ bytes: s.bytes, seconds: d });
+          });
+          const list = kept.length ? kept : segs.map((s, i) => ({ bytes: s.bytes, seconds: durations[i] }));
+          list.forEach((s, i) => addPart(i, s.bytes, list.length, s.seconds));
+        }
+
+        const known = parts.map((p) => p.seconds).filter((d) => typeof d === 'number');
+        const longest = known.length ? Math.max(...known) : null;
+        const overs = known.filter((d) => d >= o.chunkLen - 1e-3);
+        bar.style.width = '100%';
+        liveRunId = 0;
+        progress.classList.add('hidden');
+        stopElapsed();
+        $('audio-cancel').classList.add('hidden');
+        runBtn.disabled = false;
+        if (overs.length) {
+          const advice = strategy === 'video-copy'
+            ? 'Fast copy cuts on keyframes - switch to Exact length for a hard cap.'
+            : 'Try a slightly smaller maximum length.';
+          showRunError(`${overs.length} part(s) reached the ${o.chunkLen}s limit (longest ${longest.toFixed(2)}s). ${advice}`);
+          toast(`Heads up: longest part is ${longest.toFixed(2)}s (limit ${o.chunkLen}s).`);
+        } else {
+          toast(`Split into ${parts.length} part${parts.length === 1 ? '' : 's'}${longest != null ? ` - longest ${longest.toFixed(2)}s` : ''}.`);
+        }
+        return;
       } else if (state.tool === 'split') {
         const thr = Number(o.thresholdDb || -40);
         const minSil = Number(o.minSilence) || 0.4;
@@ -2115,7 +2386,7 @@ async function runTool() {
 // ============================================
 // Results
 // ============================================
-function addResult(name, bytes, mime) {
+function addResult(name, bytes, mime, meta = {}) {
   const blob = new Blob([bytes], { type: mime });
   state.results.push({
     id: ++state.resSeq,
@@ -2124,20 +2395,27 @@ function addResult(name, bytes, mime) {
     blob,
     url: URL.createObjectURL(blob),
     size: blob.size,
+    /** Shared source name for a chunk run - gives the ZIP a sensible title. */
+    batch: meta.batch || null,
   });
   renderResults();
 }
 
 function renderResults() {
   const wrap = $('audio-results');
+  if (!wrap) return;
   if (!state.results.length) {
     wrap.innerHTML = '<p class="audio-empty-note">No results yet - pick a tool and press Process.</p>';
+    updateZipBar();
     return;
   }
   wrap.innerHTML = state.results
     .map((r) => {
       const armed = state.confirm.kind === 'result' && state.confirm.id === r.id;
+      const checked = state.selected.has(r.id);
       return `<div class="audio-result${armed ? ' armed' : ''}">
+        <input type="checkbox" class="ar-check" data-act="check" data-id="${r.id}"
+          ${checked ? 'checked' : ''} aria-label="Select ${escapeHtml(r.name)} for the ZIP" />
         <span class="af-icon">🎧</span>
         <span class="ar-name" title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</span>
         <span class="ar-meta">${formatBytes(r.size)}</span>
@@ -2152,7 +2430,16 @@ function renderResults() {
     })
     .join('');
 
-  wrap.querySelectorAll('button[data-act]').forEach((b) => {
+  wrap.querySelectorAll('button[data-act], input[data-act="check"]').forEach((b) => {
+    if (b.dataset.act === 'check') {
+      b.addEventListener('change', () => {
+        const id = parseInt(b.dataset.id, 10);
+        if (b.checked) state.selected.add(id);
+        else state.selected.delete(id);
+        updateZipBar();
+      });
+      return;
+    }
     b.addEventListener('click', () => {
       const r = state.results.find((x) => x.id === parseInt(b.dataset.id, 10));
       if (!r) return;
@@ -2163,6 +2450,88 @@ function renderResults() {
       else if (act === 'remove') armDelete('result', r.id);
     });
   });
+  updateZipBar();
+}
+
+/** Keep the header's Select all / ZIP controls in sync with the selection. */
+function updateZipBar() {
+  const zipBtn = $('audio-zip');
+  const all = $('audio-select-all');
+  const n = state.results.filter((r) => state.selected.has(r.id)).length;
+  if (zipBtn) {
+    zipBtn.disabled = n < 1;
+    zipBtn.textContent = n ? `⬇ ZIP selected (${n})` : '⬇ ZIP selected';
+  }
+  if (all) {
+    all.checked = state.results.length > 0 && n === state.results.length;
+    all.indeterminate = n > 0 && n < state.results.length;
+    all.disabled = !state.results.length;
+  }
+}
+
+/** Two files can share a name after several runs - keep every entry in the zip. */
+function uniqueZipNames(list) {
+  const used = new Set();
+  return list.map((r) => {
+    let name = r.name;
+    if (used.has(name)) {
+      const dot = name.lastIndexOf('.');
+      const stem = dot > 0 ? name.slice(0, dot) : name;
+      const ext = dot > 0 ? name.slice(dot) : '';
+      let n = 2;
+      while (used.has(`${stem} (${n})${ext}`)) n++;
+      name = `${stem} (${n})${ext}`;
+    }
+    used.add(name);
+    return { name, blob: r.blob };
+  });
+}
+
+async function buildZipBlob(list) {
+  const zip = new JSZip();
+  // Media is already compressed; STORE is much faster than deflating a video.
+  uniqueZipNames(list).forEach((f) => zip.file(f.name, f.blob));
+  return zip.generateAsync({ type: 'blob', compression: 'STORE' });
+}
+
+function zipDownloadName(list) {
+  const batches = new Set(list.map((r) => r.batch).filter(Boolean));
+  if (list.length && list.every((r) => r.batch) && batches.size === 1) {
+    const base = [...batches][0].replace(/[\\/:*?"<>|]/g, '_');
+    return `${base}-parts.zip`;
+  }
+  return `fileforge-files-${list.length}.zip`;
+}
+
+async function zipSelected() {
+  const picked = state.results.filter((r) => state.selected.has(r.id));
+  if (!picked.length) return;
+  const total = picked.reduce((n, r) => n + r.size, 0);
+  if (total > 600 * 1024 * 1024) {
+    toast('That selection is over 600 MB - download those files individually.');
+    return;
+  }
+  const btn = $('audio-zip');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Zipping…';
+  try {
+    const blob = await buildZipBlob(picked);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = zipDownloadName(picked);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast(`Zipped ${picked.length} file${picked.length === 1 ? '' : 's'}.`);
+  } catch (err) {
+    toast('Could not build the ZIP: ' + ((err && err.message) || err));
+  } finally {
+    btn.textContent = label;
+    updateZipBar();
+  }
 }
 
 function downloadResult(r) {
@@ -2220,6 +2589,7 @@ function clearResults() {
   }
   for (const r of state.results) URL.revokeObjectURL(r.url);
   state.results = [];
+  state.selected.clear();
   renderResults();
 }
 
